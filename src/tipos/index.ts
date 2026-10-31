@@ -26,7 +26,7 @@ export interface Lugar {
   coordenadas: Coordenadas;
   direccion: string;
   imagenes: string[];
-  horario: Horario[];
+  horarios: Horario[];
   telefono: string | null;
   sitioWeb: string | null;
   precioEntrada: number | null; //0 = gratis, null = no aplica
@@ -49,7 +49,7 @@ export interface Categoria {
 
 export type EstadoEvento =
   | "programado"
-  | "suspendido "
+  | "suspendido"
   | "cancelado"
   | "finalizado";
 
