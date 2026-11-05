@@ -115,7 +115,7 @@ export interface MetaPaginacion {
 
 export interface RespuestaExito<T> {
   datos: T;
-  meta?: MetaPaginacion;
+  meta?: MetaPaginacion | null;
 }
 
 export interface ErrorApi {

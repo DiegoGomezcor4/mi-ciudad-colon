@@ -1,17 +1,62 @@
-import { Text, View, StyleSheet } from "react-native";
+import { useEffect, useState } from "react";
+import {
+    TextInput,
+    View
+} from "react-native";
+import { obtenerCategorias, obtenerLugares } from "../servicios/lugares";
+import { Categoria, Lugar } from "../tipos";
 
-export default function Index() {
+export default function PantallaLugares() {
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [lugares, setLugares] = useState<Lugar[]>([]);
+  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<
+    string | undefined
+  >(undefined);
+  const [busqueda, setBusqueda] = useState("");
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Cargar las categorias una sola vez al abrir la Pantalla
+  useEffect(() => {
+    obtenerCategorias()
+      .then((res) => setCategorias(res.datos))
+      .catch(() => {});
+  }, []);
+
+  // Funcion que pide los lugares a la API segun el filtro actual
+  const cargarLugares = async () => {
+    try {
+      setCargando(true);
+      setError(null);
+      const respuesta = await obtenerLugares({
+        categoriaId: categoriaSeleccionada,
+        q: busqueda.trim() || undefined,
+      });
+      setLugares(respuesta.datos);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.menssaje
+          : "No se pudieron cargar los lugares.",
+      );
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  // Recargar lugares cada vez que cambia la categoria o el texto buscado
+  useEffect(() => {
+    cargarLugares();
+  }, [categoriaSeleccionada, busqueda]);
+
   return (
-    <View style={styles.container}>
-      <Text>Edit src/app/index.tsx to edit this screen.</Text>
+    <View style={styles.contenedor}>
+      {/* Buscador por nombre */}
+      <TextInput
+        style={styles.buscador}
+        placeholder="Buscar lugar en colon (ej: Molino, termas)..."
+        value={busqueda}
+      />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});
