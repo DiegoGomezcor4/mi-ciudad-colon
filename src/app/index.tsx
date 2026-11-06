@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import {
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
     TextInput,
     View
 } from "react-native";
@@ -56,7 +60,30 @@ export default function PantallaLugares() {
         style={styles.buscador}
         placeholder="Buscar lugar en colon (ej: Molino, termas)..."
         value={busqueda}
+        onChageText={setBusqueda}
       />
+
+      {/* Filtro horizontal de categorias*/}
+      <View style={styles.contenedorCategorias}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <Pressable
+            style={[
+              styles.chipCategoria,
+              !categoriaSeleccionada && StyleSheet.chipActivo,
+            ]}
+            onPress={() => setCategoriaSeleccionada(undefined)}
+          >
+            <Text
+              style={[
+                styles.textoChip,
+                !categoriaSeleccionada && styles.textoChipActivo,
+              ]}
+            >
+              Todos
+            </Text>
+          </Pressable>
+        </ScrollView>
+      </View>
     </View>
   );
 }
