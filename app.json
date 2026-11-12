@@ -43,7 +43,6 @@
       ]
     },
     "web": {
-      "output": "server",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -86,7 +85,6 @@
           "microphonePermission": false
         }
       ],
-      "expo-video",
       "expo-sqlite",
       "expo-secure-store",
       "expo-notifications",
@@ -98,11 +96,14 @@
             "usesCleartextTraffic": true
           }
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
     },
     "extra": {
       "router": {

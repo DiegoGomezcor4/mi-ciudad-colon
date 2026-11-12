@@ -1,4 +1,3 @@
-import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { Evento, Lugar } from "../tipos";
 import {
@@ -7,17 +6,36 @@ import {
   yaSeAvisoProximidadHoy,
 } from "./preferencias";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+let manejadorConfigurado = false;
+
+function obtenerModuloNotificaciones(): typeof import("expo-notifications") | null {
+  if (Platform.OS === "web") {
+    return null;
+  }
+  try {
+    // Carga diferida para evitar que DevicePushTokenAutoRegistration o ExpoApplication fallen al iniciar el APK sin Firebase
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Notifications = require("expo-notifications") as typeof import("expo-notifications");
+    if (!manejadorConfigurado) {
+      manejadorConfigurado = true;
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowBanner: true,
+          shouldShowList: true,
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+        }),
+      });
+    }
+    return Notifications;
+  } catch {
+    return null;
+  }
+}
 
 export async function solicitarPermisoNotificaciones(): Promise<boolean> {
-  if (Platform.OS === "web") {
+  const Notifications = obtenerModuloNotificaciones();
+  if (!Notifications) {
     return false;
   }
   try {
@@ -36,37 +54,45 @@ export async function solicitarPermisoNotificaciones(): Promise<boolean> {
 export async function programarRecordatorioEvento(
   evento: Evento,
 ): Promise<boolean> {
-  const tienePermiso = await solicitarPermisoNotificaciones();
-  if (!tienePermiso) {
+  const Notifications = obtenerModuloNotificaciones();
+  if (!Notifications) {
     return false;
   }
+  try {
+    const tienePermiso = await solicitarPermisoNotificaciones();
+    if (!tienePermiso) {
+      return false;
+    }
 
-  if (evento.estado === "cancelado" || evento.estado === "suspendido") {
+    if (evento.estado === "cancelado" || evento.estado === "suspendido") {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `Evento ${evento.estado}: ${evento.titulo}`,
+          body: `Te avisamos que "${evento.titulo}" se encuentra ${evento.estado}.`,
+          data: { eventoId: evento.id },
+        },
+        trigger: null,
+      });
+      return true;
+    }
+
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: `Evento ${evento.estado}: ${evento.titulo}`,
-        body: `Te avisamos que "${evento.titulo}" se encuentra ${evento.estado}.`,
+        title: `Recordatorio: ${evento.titulo}`,
+        body: `Guardaste este evento en tu agenda de Colón. ¡No te lo pierdas!`,
         data: { eventoId: evento.id },
       },
-      trigger: null,
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: 5,
+        repeats: false,
+      },
     });
+
     return true;
+  } catch {
+    return false;
   }
-
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: `Recordatorio: ${evento.titulo}`,
-      body: `Guardaste este evento en tu agenda de Colón. ¡No te lo pierdas!`,
-      data: { eventoId: evento.id },
-    },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: 5,
-      repeats: false,
-    },
-  });
-
-  return true;
 }
 
 // Envía como máximo 1 aviso por lugar y por día cuando el turista está dentro del radio configurado (PDF pág. 4)
@@ -85,6 +111,11 @@ export async function verificarYNotificarProximidad(
 
     const yaAvisado = await yaSeAvisoProximidadHoy(lugar.id);
     if (yaAvisado) {
+      return;
+    }
+
+    const Notifications = obtenerModuloNotificaciones();
+    if (!Notifications) {
       return;
     }
 
