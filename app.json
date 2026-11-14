@@ -11,9 +11,7 @@
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.uner.miciudadcolon",
       "infoPlist": {
-        "UIBackgroundModes": [
-          "audio"
-        ],
+        "UIBackgroundModes": ["audio"],
         "NSCameraUsageDescription": "Necesitamos acceso a la cámara para escanear los códigos QR de los lugares y sacar fotos de tus visitas.",
         "NSLocationWhenInUseUsageDescription": "Necesitamos tu ubicación para mostrarte qué lugares turísticos tenés cerca en Colón.",
         "NSPhotoLibraryUsageDescription": "Necesitamos acceso a tu galería para adjuntar fotos a tu recorrido.",
@@ -30,6 +28,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
+        "android.permission.INTERNET",
         "android.permission.CAMERA",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
@@ -93,7 +92,9 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "enableProguardInReleaseBuilds": false,
+            "extraProguardRules": "-keep class androidx.work.impl.WorkDatabase { *; }"
           }
         }
       ],
