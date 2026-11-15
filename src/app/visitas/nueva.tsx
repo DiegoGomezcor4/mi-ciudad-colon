@@ -22,6 +22,10 @@ import {
   obtenerLugares,
   obtenerLugarPorQr,
 } from "../../servicios/lugares";
+import {
+  obtenerSimularGpsColonSincrono,
+  UBICACION_DEMO_COLON,
+} from "../../servicios/preferencias";
 import { registrarNuevaVisita } from "../../servicios/visitas";
 import { useTema } from "../../servicios/tema";
 import { Lugar, OrigenVisita } from "../../tipos";
@@ -106,23 +110,28 @@ export default function PantallaNuevaVisita() {
     }
   };
 
-  // 2. Modo GPS por cercanía física
+  // 2. Modo GPS por cercanía física (o ubicación simulada en Colón si está activa)
   const verificarCercaniaGps = async () => {
     try {
-      const perm = await Location.requestForegroundPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert(
-          "Ubicación desactivada",
-          "Para validar por GPS necesitamos permiso de ubicación, o podés registrarla manualmente.",
-        );
-        return;
-      }
+      let miCoord = UBICACION_DEMO_COLON;
+      const usandoSimulacion = obtenerSimularGpsColonSincrono();
 
-      const pos = await Location.getCurrentPositionAsync({});
-      const miCoord = {
-        latitud: pos.coords.latitude,
-        longitud: pos.coords.longitude,
-      };
+      if (!usandoSimulacion) {
+        const perm = await Location.requestForegroundPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert(
+            "Ubicación desactivada",
+            "Para validar por GPS necesitamos permiso de ubicación (o podés activar el GPS simulado en Colón en el Mapa).",
+          );
+          return;
+        }
+
+        const pos = await Location.getCurrentPositionAsync({});
+        miCoord = {
+          latitud: pos.coords.latitude,
+          longitud: pos.coords.longitude,
+        };
+      }
 
       if (lugares.length === 0) return;
 
@@ -138,7 +147,9 @@ export default function PantallaNuevaVisita() {
       setOrigen("gps");
       await Haptics.selectionAsync();
       Alert.alert(
-        "Ubicación GPS detectada",
+        usandoSimulacion
+          ? "Ubicación GPS (Simulada en Colón)"
+          : "Ubicación GPS detectada",
         `El lugar más cercano a tu posición es ${masCercano.nombre} (${formatearDistancia(dist)}).`,
       );
     } catch {

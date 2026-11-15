@@ -24,14 +24,14 @@ import {
   obtenerLugares,
 } from "../../servicios/lugares";
 import { verificarYNotificarProximidad } from "../../servicios/notificaciones";
+import {
+  cambiarSimularGpsColon,
+  obtenerSimularGpsColonSincrono,
+  suscribirSimularGpsColon,
+  UBICACION_DEMO_COLON,
+} from "../../servicios/preferencias";
 import { useTema } from "../../servicios/tema";
 import { Categoria, Coordenadas, Lugar, OrigenDatos } from "../../tipos";
-
-// Punto de demostración en Costanera de Colón para probar cercanía si el usuario está en otra ciudad
-const UBICACION_DEMO_COLON: Coordenadas = {
-  latitud: -32.2165,
-  longitud: -58.1362,
-};
 
 export default function PantallaMapaYLugares() {
   const { esOscuro, colores } = useTema();
@@ -40,13 +40,16 @@ export default function PantallaMapaYLugares() {
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<
     string | undefined
   >(undefined);
+  const [soloAccesibles, setSoloAccesibles] = useState(false);
   const [busqueda, setBusqueda] = useState("");
   const [ordenarPorDistancia, setOrdenarPorDistancia] = useState(true);
   const [mostrarMapa, setMostrarMapa] = useState(true);
   const [interactuandoMapa, setInteractuandoMapa] = useState(false);
   const [ubicacionGpsReal, setUbicacionGpsReal] =
     useState<Coordenadas | null>(null);
-  const [simularEnColon, setSimularEnColon] = useState(false);
+  const [simularEnColon, setSimularEnColon] = useState<boolean>(() =>
+    obtenerSimularGpsColonSincrono(),
+  );
   const [permisoUbicacionDenegado, setPermisoUbicacionDenegado] =
     useState(false);
   const [cargando, setCargando] = useState(true);
@@ -56,6 +59,10 @@ export default function PantallaMapaYLugares() {
   const [apiConectadaEnVivo, setApiConectadaEnVivo] = useState<boolean | null>(
     null,
   );
+
+  useEffect(() => {
+    return suscribirSimularGpsColon(setSimularEnColon);
+  }, []);
 
   const ubicacionUsuario: Coordenadas | null = simularEnColon
     ? UBICACION_DEMO_COLON
@@ -77,7 +84,7 @@ export default function PantallaMapaYLugares() {
         longitud: posicion.coords.longitude,
       };
       setUbicacionGpsReal(coords);
-      setSimularEnColon(false);
+      await cambiarSimularGpsColon(false);
       return coords;
     } catch {
       setPermisoUbicacionDenegado(true);
@@ -154,6 +161,7 @@ export default function PantallaMapaYLugares() {
       try {
         const respuesta = await obtenerLugares({
           categoriaId: categoriaSeleccionada,
+          accesible: soloAccesibles || undefined,
           q: busqueda.trim() || undefined,
           latitud: ubicacionUsuario?.latitud,
           longitud: ubicacionUsuario?.longitud,
@@ -192,6 +200,7 @@ export default function PantallaMapaYLugares() {
     };
   }, [
     categoriaSeleccionada,
+    soloAccesibles,
     busqueda,
     ubicacionUsuario,
     ordenarPorDistancia,
@@ -276,7 +285,7 @@ export default function PantallaMapaYLugares() {
             if (!ubicacionGpsReal && !simularEnColon) {
               void solicitarUbicacionGps();
             } else {
-              setSimularEnColon((prev) => !prev);
+              void cambiarSimularGpsColon(!simularEnColon);
             }
           }}
         >
@@ -368,6 +377,25 @@ export default function PantallaMapaYLugares() {
             </Text>
           </Pressable>
 
+          <Pressable
+            style={[
+              styles.chipCategoria,
+              { backgroundColor: esOscuro ? "#1E293B" : "#E5E8EC" },
+              soloAccesibles && { backgroundColor: "#117A65" },
+            ]}
+            onPress={() => setSoloAccesibles((prev) => !prev)}
+          >
+            <Text
+              style={[
+                styles.textoChip,
+                { color: colores.texto },
+                soloAccesibles && styles.textoChipActivo,
+              ]}
+            >
+              ♿ Accesibles
+            </Text>
+          </Pressable>
+
           {categorias.map((cat) => {
             const activo = categoriaSeleccionada === cat.id;
             return (
@@ -429,13 +457,26 @@ export default function PantallaMapaYLugares() {
               )}
 
               {permisoUbicacionDenegado && !simularEnColon && (
-                <View style={styles.avisoSinUbicacion}>
+                <View
+                  style={[
+                    styles.avisoSinUbicacion,
+                    esOscuro && {
+                      backgroundColor: "#422006",
+                      borderColor: "#854D0E",
+                    },
+                  ]}
+                >
                   <Ionicons
                     name="location-outline"
                     size={18}
-                    color="#7D6608"
+                    color={esOscuro ? "#FDE047" : "#7D6608"}
                   />
-                  <Text style={styles.textoAvisoUbicacion}>
+                  <Text
+                    style={[
+                      styles.textoAvisoUbicacion,
+                      esOscuro && { color: "#FEF08A" },
+                    ]}
+                  >
                     Ubicación desactivada: activá el GPS o usá la simulación en
                     Colón para ordenar por cercanía.
                   </Text>

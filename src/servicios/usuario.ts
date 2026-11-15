@@ -31,15 +31,26 @@ export async function iniciarSesionUsuario(
     );
     await guardarTokenSesion(respuesta.datos.token);
     await guardarPreferenciasLocales(respuesta.datos.usuario.preferencias);
+
+    // Sincronizar favoritos guardados localmente antes de iniciar sesión
+    const locales = await listarFavoritosLocales();
+    for (const fav of locales) {
+      peticionApi<Favorito>(
+        `/yo/favoritos/${fav.lugarId}`,
+        { method: "PUT" },
+        respuesta.datos.token,
+      ).catch(() => {});
+    }
+
     return respuesta.datos;
   } catch (err) {
-    // Si la API respondió un error de credenciales (401), lo propagamos tal cual
-    if (
-      err instanceof Error &&
-      err.message.toLowerCase().includes("contraseña")
-    ) {
+    const esFalloRed =
+      err instanceof TypeError ||
+      (err instanceof Error && err.name === "AbortError");
+    if (!esFalloRed) {
       throw err;
     }
+
     const tokenSimulado = `jwt-colon-${Date.now()}`;
     await guardarTokenSesion(tokenSimulado);
     const prefs = await obtenerPreferenciasLocales();
@@ -52,6 +63,28 @@ export async function iniciarSesionUsuario(
       token: tokenSimulado,
     };
   }
+}
+
+// Usa POST /auth/registro de la API de la cátedra para crear una cuenta nueva de turista
+export async function registrarNuevoUsuario(
+  nombre: string,
+  email: string,
+  contrasena: string,
+): Promise<{ usuario: Usuario; token: string }> {
+  const respuesta = await peticionApi<{ usuario: Usuario; token: string }>(
+    "/auth/registro",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        nombre: nombre.trim(),
+        email: email.trim(),
+        contrasena,
+      }),
+    },
+  );
+  await guardarTokenSesion(respuesta.datos.token);
+  await guardarPreferenciasLocales(respuesta.datos.usuario.preferencias);
+  return respuesta.datos;
 }
 
 export async function cerrarSesionUsuario(): Promise<void> {
@@ -99,17 +132,26 @@ export async function actualizarPreferenciasUsuario(
   return preferencias;
 }
 
-// Usa GET /yo/favoritos si hay sesión activa, con respaldo en SQLite local
+// Usa GET /yo/favoritos si hay sesión activa, fusionando con SQLite local
 export async function obtenerMisFavoritos(): Promise<
   RespuestaExito<Favorito[]>
 > {
+  const locales = await listarFavoritosLocales();
   const token = await obtenerTokenSesion();
-  if (token) {
+  if (token && !token.startsWith("jwt-colon-")) {
     try {
-      return await peticionApi<Favorito[]>("/yo/favoritos", {}, token);
+      const remotos = await peticionApi<Favorito[]>("/yo/favoritos", {}, token);
+      const lugaresRemotos = new Set(remotos.datos.map((f) => f.lugarId));
+      const soloLocales = locales.filter(
+        (f) => !lugaresRemotos.has(f.lugarId),
+      );
+      const combinados = [...remotos.datos, ...soloLocales];
+      return {
+        datos: combinados,
+        meta: { total: combinados.length, pagina: 1, porPagina: 50 },
+      };
     } catch {}
   }
-  const locales = await listarFavoritosLocales();
   return {
     datos: locales,
     meta: { total: locales.length, pagina: 1, porPagina: 50 },
@@ -117,14 +159,16 @@ export async function obtenerMisFavoritos(): Promise<
 }
 
 export async function consultarSiEsFavorito(lugarId: string): Promise<boolean> {
+  const esLocal = await esLugarFavoritoLocal(lugarId);
+  if (esLocal) return true;
   const token = await obtenerTokenSesion();
-  if (token) {
+  if (token && !token.startsWith("jwt-colon-")) {
     try {
       const res = await peticionApi<Favorito[]>("/yo/favoritos", {}, token);
       return res.datos.some((f) => f.lugarId === lugarId);
     } catch {}
   }
-  return esLugarFavoritoLocal(lugarId);
+  return false;
 }
 
 // Usa PUT /yo/favoritos/:lugarId y DELETE /yo/favoritos/:lugarId de la API de la cátedra

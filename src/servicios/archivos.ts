@@ -41,19 +41,18 @@ export async function descargarAudioguiaLocal(
   lugarId: string,
   urlRemota: string,
 ): Promise<string> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { Directory, File, Paths } = require("expo-file-system") as typeof import("expo-file-system");
-    const dirAudio = new Directory(Paths.document, "audioguias");
-    if (!dirAudio.exists) {
-      dirAudio.create({ idempotent: true, intermediates: true });
-    }
-    const archivoDestino = new File(dirAudio, `${lugarId}.m4a`);
-    const descargado = await File.downloadFileAsync(urlRemota, archivoDestino, {
-      idempotent: true,
-    });
-    return descargado.uri;
-  } catch {
-    return urlRemota;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Directory, File, Paths } = require("expo-file-system") as typeof import("expo-file-system");
+  const dirAudio = new Directory(Paths.document, "audioguias");
+  if (!dirAudio.exists) {
+    dirAudio.create({ idempotent: true, intermediates: true });
   }
+  const archivoDestino = new File(dirAudio, `${lugarId}.m4a`);
+  const descargado = await File.downloadFileAsync(urlRemota, archivoDestino, {
+    idempotent: true,
+  });
+  if (!descargado.exists) {
+    throw new Error("El archivo de audioguía no pudo guardarse en el dispositivo.");
+  }
+  return descargado.uri;
 }

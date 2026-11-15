@@ -86,7 +86,7 @@ export async function obtenerLugares(
   const params = new URLSearchParams();
 
   if (filtros.pagina) params.append("pagina", String(filtros.pagina));
-  if (filtros.porPagina) params.append("porPagina", String(filtros.porPagina));
+  params.append("porPagina", String(filtros.porPagina ?? 100));
   if (filtros.categoriaId) params.append("categoriaId", filtros.categoriaId);
   if (filtros.q) params.append("q", filtros.q);
   if (filtros.latitud !== undefined)

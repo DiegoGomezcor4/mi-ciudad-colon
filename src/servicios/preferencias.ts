@@ -1,8 +1,51 @@
-import { Preferencias } from "../tipos";
+import { Coordenadas, EstadoEvento, Preferencias } from "../tipos";
 
 const CLAVE_PREFERENCIAS = "colon_preferencias_usuario";
 const CLAVE_EVENTOS_GUARDADOS = "colon_eventos_guardados";
+const CLAVE_ESTADOS_EVENTOS = "colon_estados_eventos_locales";
 const CLAVE_AVISOS_PROXIMIDAD = "colon_avisos_proximidad_diarios";
+const CLAVE_SIMULAR_GPS_COLON = "colon_simular_gps";
+
+// Coordenada de demostración en Costanera de Colón para probar cercanía desde otra ciudad
+export const UBICACION_DEMO_COLON: Coordenadas = {
+  latitud: -32.2165,
+  longitud: -58.1362,
+};
+
+let simularGpsEnColonActual = false;
+const listenersGpsSimulado = new Set<(activo: boolean) => void>();
+
+export function obtenerSimularGpsColonSincrono(): boolean {
+  return simularGpsEnColonActual;
+}
+
+export async function cambiarSimularGpsColon(activo: boolean): Promise<void> {
+  simularGpsEnColonActual = activo;
+  listenersGpsSimulado.forEach((fn) => {
+    try {
+      fn(activo);
+    } catch {}
+  });
+  await guardarItem(CLAVE_SIMULAR_GPS_COLON, activo ? "true" : "false");
+}
+
+export function suscribirSimularGpsColon(
+  listener: (activo: boolean) => void,
+): () => void {
+  listenersGpsSimulado.add(listener);
+  void leerItem(CLAVE_SIMULAR_GPS_COLON).then((val) => {
+    if (val !== null) {
+      const bool = val === "true";
+      if (bool !== simularGpsEnColonActual) {
+        simularGpsEnColonActual = bool;
+        listener(bool);
+      }
+    }
+  });
+  return () => {
+    listenersGpsSimulado.delete(listener);
+  };
+}
 
 const memoriaRespaldo = new Map<string, string>();
 
@@ -140,5 +183,27 @@ export async function registrarAvisoProximidadHoy(
     const mapa: Record<string, string> = guardado ? JSON.parse(guardado) : {};
     mapa[lugarId] = hoy;
     await guardarItem(CLAVE_AVISOS_PROXIMIDAD, JSON.stringify(mapa));
+  } catch {}
+}
+
+export async function obtenerEstadosEventosLocales(): Promise<
+  Record<string, EstadoEvento>
+> {
+  try {
+    const guardado = await leerItem(CLAVE_ESTADOS_EVENTOS);
+    return guardado ? (JSON.parse(guardado) as Record<string, EstadoEvento>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function guardarEstadoEventoLocal(
+  eventoId: string,
+  estado: EstadoEvento,
+): Promise<void> {
+  try {
+    const mapa = await obtenerEstadosEventosLocales();
+    mapa[eventoId] = estado;
+    await guardarItem(CLAVE_ESTADOS_EVENTOS, JSON.stringify(mapa));
   } catch {}
 }

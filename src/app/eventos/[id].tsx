@@ -31,7 +31,7 @@ function calcularDuracionTexto(inicioIso: string, finIso: string | null): string
 }
 
 export default function PantallaDetalleEvento() {
-  const { colores } = useTema();
+  const { esOscuro, colores } = useTema();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [evento, setEvento] = useState<Evento | null>(null);
@@ -133,8 +133,26 @@ export default function PantallaDetalleEvento() {
       <Stack.Screen options={{ title: evento.titulo }} />
 
       <View style={styles.cuerpo}>
-        <View style={styles.badgeEstado}>
-          <Text style={styles.textoEstado}>
+        <View
+          style={[
+            styles.badgeEstado,
+            evento.estado === "suspendido"
+              ? { backgroundColor: esOscuro ? "#713F12" : "#FCF3CF" }
+              : evento.estado === "cancelado"
+                ? { backgroundColor: esOscuro ? "#7F1D1D" : "#FADBD8" }
+                : { backgroundColor: esOscuro ? "#1E3A8A" : "#D6EAF8" },
+          ]}
+        >
+          <Text
+            style={[
+              styles.textoEstado,
+              evento.estado === "suspendido"
+                ? { color: esOscuro ? "#FEF08A" : "#B7950B" }
+                : evento.estado === "cancelado"
+                  ? { color: esOscuro ? "#FECACA" : "#C0392B" }
+                  : { color: esOscuro ? "#BFDBFE" : "#1B4F72" },
+            ]}
+          >
             Estado actual: {evento.estado.toUpperCase()}
           </Text>
         </View>
@@ -226,12 +244,28 @@ export default function PantallaDetalleEvento() {
                   borderColor: colores.borde,
                 },
               ]}
+              onPress={() => cambiarEstadoDemo("programado")}
+            >
+              <Text
+                style={[styles.textoBotonClima, { color: colores.textoPrimario }]}
+              >
+                ☀️ Normal
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.botonClima,
+                {
+                  backgroundColor: colores.superficieSecundaria,
+                  borderColor: colores.borde,
+                },
+              ]}
               onPress={() => cambiarEstadoDemo("suspendido")}
             >
               <Text
                 style={[styles.textoBotonClima, { color: colores.textoPrimario }]}
               >
-                🌧️ Suspender por lluvia
+                🌧️ Lluvia
               </Text>
             </Pressable>
             <Pressable
@@ -247,7 +281,7 @@ export default function PantallaDetalleEvento() {
               <Text
                 style={[styles.textoBotonClima, { color: colores.textoPrimario }]}
               >
-                ❌ Marcar cancelado
+                ❌ Cancelar
               </Text>
             </Pressable>
           </View>

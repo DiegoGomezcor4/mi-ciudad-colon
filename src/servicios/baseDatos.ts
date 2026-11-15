@@ -189,6 +189,38 @@ export async function marcarVisitaComoSincronizada(id: string): Promise<void> {
   } catch {}
 }
 
+export async function actualizarVisitaLocal(
+  id: string,
+  cambios: { fotoUri?: string | null; nota?: string | null },
+): Promise<void> {
+  visitasMemoria = visitasMemoria.map((v) =>
+    v.id === id
+      ? {
+          ...v,
+          fotoUri: cambios.fotoUri !== undefined ? cambios.fotoUri : v.fotoUri,
+          nota: cambios.nota !== undefined ? cambios.nota : v.nota,
+        }
+      : v,
+  );
+  try {
+    const db = await obtenerBaseDatos();
+    if (!db) return;
+    const actual = await db.getFirstAsync<FilaVisita>(
+      "SELECT * FROM visitas_locales WHERE id = ?",
+      [id],
+    );
+    if (actual) {
+      const nuevaFoto =
+        cambios.fotoUri !== undefined ? cambios.fotoUri : actual.fotoUri;
+      const nuevaNota = cambios.nota !== undefined ? cambios.nota : actual.nota;
+      await db.runAsync(
+        "UPDATE visitas_locales SET fotoUri = ?, nota = ? WHERE id = ?",
+        [nuevaFoto, nuevaNota, id],
+      );
+    }
+  } catch {}
+}
+
 export async function listarFavoritosLocales(): Promise<Favorito[]> {
   try {
     const db = await obtenerBaseDatos();

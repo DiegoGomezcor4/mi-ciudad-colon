@@ -25,6 +25,7 @@ import {
   iniciarSesionUsuario,
   obtenerMisFavoritos,
   obtenerPerfilActual,
+  registrarNuevoUsuario,
 } from "../../servicios/usuario";
 import { Favorito, Lugar, Preferencias, Usuario } from "../../tipos";
 
@@ -39,6 +40,8 @@ export default function PantallaPerfilYFavoritos() {
   const { esOscuro, colores } = useTema();
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [bloqueadoBiometria, setBloqueadoBiometria] = useState(false);
+  const [modoRegistro, setModoRegistro] = useState(false);
+  const [nombreRegistro, setNombreRegistro] = useState("");
   const [email, setEmail] = useState("lucia@mail.com");
   const [contrasena, setContrasena] = useState("lucia1234");
   const [favoritos, setFavoritos] = useState<Favorito[]>([]);
@@ -74,16 +77,45 @@ export default function PantallaPerfilYFavoritos() {
       Alert.alert("Campo requerido", "Ingresá tu correo electrónico.");
       return;
     }
-    const { usuario: nuevoUsuario } = await iniciarSesionUsuario(
-      email,
-      contrasena,
-    );
-    setUsuario(nuevoUsuario);
-    setBloqueadoBiometria(false);
-    Alert.alert(
-      "Sesión iniciada",
-      "Tu token quedó resguardado en expo-secure-store para sincronizar tus favoritos y recorrido.",
-    );
+    try {
+      if (modoRegistro) {
+        if (!nombreRegistro.trim()) {
+          Alert.alert("Campo requerido", "Ingresá tu nombre para crear la cuenta.");
+          return;
+        }
+        const { usuario: creado } = await registrarNuevoUsuario(
+          nombreRegistro,
+          email,
+          contrasena,
+        );
+        setUsuario(creado);
+        setBloqueadoBiometria(false);
+        Alert.alert(
+          "Cuenta creada",
+          "Tu cuenta fue registrada en la API y tu sesión quedó activa.",
+        );
+      } else {
+        const { usuario: nuevoUsuario } = await iniciarSesionUsuario(
+          email,
+          contrasena,
+        );
+        setUsuario(nuevoUsuario);
+        setBloqueadoBiometria(false);
+        const resFavs = await obtenerMisFavoritos();
+        setFavoritos(resFavs.datos);
+        Alert.alert(
+          "Sesión iniciada",
+          "Tu token quedó resguardado en expo-secure-store para sincronizar tus favoritos y recorrido.",
+        );
+      }
+    } catch (err) {
+      Alert.alert(
+        "No se pudo ingresar",
+        err instanceof Error
+          ? err.message
+          : "Verificá tus datos o tu conexión con la API.",
+      );
+    }
   };
 
   const manejarDesbloqueoRapido = async () => {
@@ -197,10 +229,96 @@ export default function PantallaPerfilYFavoritos() {
                 { color: colores.textoSecundario },
               ]}
             >
-              No necesitás cuenta para usar el mapa. Iniciá sesión solo si
-              querés respaldar tus favoritos y recorrido para otro teléfono o el
-              año que viene.
+              No necesitás cuenta para usar el mapa. Iniciá sesión o registrate
+              para respaldar tus favoritos y recorrido.
             </Text>
+
+            {!modoRegistro && (
+              <View style={styles.filaOpciones}>
+                <Pressable
+                  style={[
+                    styles.chipOpcion,
+                    { backgroundColor: esOscuro ? "#0F172A" : "#E5E8EC" },
+                    email === "lucia@mail.com" && styles.chipOpcionActivo,
+                  ]}
+                  onPress={() => {
+                    setEmail("lucia@mail.com");
+                    setContrasena("lucia1234");
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.textoChipOpcion,
+                      { color: colores.texto, fontSize: 12 },
+                      email === "lucia@mail.com" && styles.textoChipOpcionActivo,
+                    ]}
+                  >
+                    Lucía (Demo)
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.chipOpcion,
+                    { backgroundColor: esOscuro ? "#0F172A" : "#E5E8EC" },
+                    email === "turismo@colon.demo.ar" && styles.chipOpcionActivo,
+                  ]}
+                  onPress={() => {
+                    setEmail("turismo@colon.demo.ar");
+                    setContrasena("turismo1234");
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.textoChipOpcion,
+                      { color: colores.texto, fontSize: 12 },
+                      email === "turismo@colon.demo.ar" &&
+                        styles.textoChipOpcionActivo,
+                    ]}
+                  >
+                    Turismo (Admin)
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.chipOpcion,
+                    { backgroundColor: esOscuro ? "#0F172A" : "#E5E8EC" },
+                    email === "nuevo@demo.ar" && styles.chipOpcionActivo,
+                  ]}
+                  onPress={() => {
+                    setEmail("nuevo@demo.ar");
+                    setContrasena("nuevo1234");
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.textoChipOpcion,
+                      { color: colores.texto, fontSize: 12 },
+                      email === "nuevo@demo.ar" && styles.textoChipOpcionActivo,
+                    ]}
+                  >
+                    Nuevo
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+
+            {modoRegistro && (
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colores.inputFondo,
+                    borderColor: colores.borde,
+                    color: colores.texto,
+                  },
+                ]}
+                placeholder="Tu nombre"
+                placeholderTextColor={colores.textoSecundario}
+                value={nombreRegistro}
+                onChangeText={setNombreRegistro}
+              />
+            )}
+
             <TextInput
               style={[
                 styles.input,
@@ -233,7 +351,20 @@ export default function PantallaPerfilYFavoritos() {
               secureTextEntry
             />
             <Pressable style={styles.botonPrimario} onPress={manejarLogin}>
-              <Text style={styles.textoBotonPrimario}>Iniciar sesión</Text>
+              <Text style={styles.textoBotonPrimario}>
+                {modoRegistro ? "Crear cuenta" : "Iniciar sesión"}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.botonCerrar}
+              onPress={() => setModoRegistro((prev) => !prev)}
+            >
+              <Text style={[styles.textoCerrar, { color: colores.primario }]}>
+                {modoRegistro
+                  ? "¿Ya tenés cuenta? Iniciar sesión"
+                  : "¿No tenés cuenta? Crear una nueva"}
+              </Text>
             </Pressable>
           </View>
         ) : bloqueadoBiometria ? (

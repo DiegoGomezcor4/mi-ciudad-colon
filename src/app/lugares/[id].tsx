@@ -35,6 +35,11 @@ import {
   obtenerLugarPorId,
 } from "../../servicios/lugares";
 import {
+  obtenerSimularGpsColonSincrono,
+  suscribirSimularGpsColon,
+  UBICACION_DEMO_COLON,
+} from "../../servicios/preferencias";
+import {
   cambiarEstadoFavorito,
   consultarSiEsFavorito,
 } from "../../servicios/usuario";
@@ -51,29 +56,56 @@ function calcularEstadoHorario(horarios: Horario[]): {
 
   const ahora = new Date();
   const diaHoy = ahora.getDay() as Horario["dia"];
-  const horarioHoy = horarios.find((h) => h.dia === diaHoy);
+  const diaAyer = ((diaHoy + 6) % 7) as Horario["dia"];
+  const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
 
-  if (!horarioHoy) {
+  // 1. Verificar si un turno nocturno que empezó ayer (ej. 20:30 a 01:00) sigue abierto en esta madrugada
+  const tramosAyer = horarios.filter((h) => h.dia === diaAyer);
+  for (const tramo of tramosAyer) {
+    const [hAbre, mAbre] = tramo.abre.split(":").map(Number);
+    const [hCierra, mCierra] = tramo.cierra.split(":").map(Number);
+    const minApertura = hAbre * 60 + mAbre;
+    const minCierre = hCierra * 60 + mCierra;
+    if (minCierre <= minApertura && minutosAhora < minCierre) {
+      return {
+        abierto: true,
+        texto: `Abierto ahora · cierra ${tramo.cierra}`,
+      };
+    }
+  }
+
+  // 2. Verificar todos los tramos de hoy (mañana, tarde o trasnoche)
+  const tramosHoy = horarios.filter((h) => h.dia === diaHoy);
+  if (tramosHoy.length === 0) {
     return { abierto: false, texto: "Cerrado hoy" };
   }
 
-  const [horaAbre, minAbre] = horarioHoy.abre.split(":").map(Number);
-  const [horaCierra, minCierra] = horarioHoy.cierra.split(":").map(Number);
+  for (const tramo of tramosHoy) {
+    const [hAbre, mAbre] = tramo.abre.split(":").map(Number);
+    const [hCierra, mCierra] = tramo.cierra.split(":").map(Number);
+    const minApertura = hAbre * 60 + mAbre;
+    const minCierre = hCierra * 60 + mCierra;
 
-  const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
-  const minutosApertura = horaAbre * 60 + minAbre;
-  const minutosCierre = horaCierra * 60 + minCierra;
+    const estaAbiertoEnTramo =
+      minCierre > minApertura
+        ? minutosAhora >= minApertura && minutosAhora < minCierre
+        : minutosAhora >= minApertura || minutosAhora < minCierre;
 
-  if (minutosAhora >= minutosApertura && minutosAhora < minutosCierre) {
-    return {
-      abierto: true,
-      texto: `Abierto ahora · cierra ${horarioHoy.cierra}`,
-    };
+    if (estaAbiertoEnTramo) {
+      return {
+        abierto: true,
+        texto: `Abierto ahora · cierra ${tramo.cierra}`,
+      };
+    }
   }
+
+  const resumenTramos = tramosHoy
+    .map((t) => `${t.abre} a ${t.cierra}`)
+    .join(" y ");
 
   return {
     abierto: false,
-    texto: `Cerrado ahora · hoy de ${horarioHoy.abre} a ${horarioHoy.cierra}`,
+    texto: `Cerrado ahora · hoy de ${resumenTramos}`,
   };
 }
 
@@ -93,19 +125,32 @@ function formatearPrecio(precio: number | null): string {
 const NOMBRES_DIAS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 export default function PantallaDetalleLugar() {
-  const { colores } = useTema();
+  const { esOscuro, colores } = useTema();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [lugar, setLugar] = useState<Lugar | null>(null);
   const [categoria, setCategoria] = useState<Categoria | null>(null);
   const [favorito, setFavorito] = useState(false);
-  const [ubicacion, setUbicacion] = useState<Coordenadas | null>(null);
+  const [ubicacionGpsReal, setUbicacionGpsReal] = useState<Coordenadas | null>(
+    null,
+  );
+  const [simularEnColon, setSimularEnColon] = useState<boolean>(() =>
+    obtenerSimularGpsColonSincrono(),
+  );
   const [anguloMagnetometro, setAnguloMagnetometro] = useState<number>(0);
   const [uriAudioOffline, setUriAudioOffline] = useState<string | null>(null);
   const [descargandoAudio, setDescargandoAudio] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [interactuandoMapa, setInteractuandoMapa] = useState(false);
+
+  useEffect(() => {
+    return suscribirSimularGpsColon(setSimularEnColon);
+  }, []);
+
+  const ubicacion: Coordenadas | null = simularEnColon
+    ? UBICACION_DEMO_COLON
+    : ubicacionGpsReal;
 
   // Configurar expo-audio para permitir reproducción incluso con la pantalla apagada en el bolsillo (PDF pág. 3 y 5)
   const fuenteAudio =
@@ -157,7 +202,7 @@ export default function PantallaDetalleLugar() {
         const perm = await Location.getForegroundPermissionsAsync();
         if (perm.granted) {
           const pos = await Location.getCurrentPositionAsync({});
-          setUbicacion({
+          setUbicacionGpsReal({
             latitud: pos.coords.latitude,
             longitud: pos.coords.longitude,
           });
@@ -314,8 +359,21 @@ export default function PantallaDetalleLugar() {
             </View>
           )}
           {lugar.accesible && (
-            <View style={styles.badgeAccesible}>
-              <Text style={styles.textoBadgeAccesible}>
+            <View
+              style={[
+                styles.badgeAccesible,
+                esOscuro && {
+                  backgroundColor: "#064E3B",
+                  borderColor: "#10B981",
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.textoBadgeAccesible,
+                  esOscuro && { color: "#A7F3D0" },
+                ]}
+              >
                 ♿ Accesible silla de ruedas
               </Text>
             </View>
@@ -447,27 +505,62 @@ export default function PantallaDetalleLugar() {
 
         {/* Reproductor de Audioguía (pausa, adelantar, cuánto falta y descarga offline) */}
         {lugar.audioguia && (
-          <View style={styles.cajaAudioguia}>
+          <View
+            style={[
+              styles.cajaAudioguia,
+              esOscuro && {
+                backgroundColor: "#2E1065",
+                borderColor: "#7E22CE",
+              },
+            ]}
+          >
             <View style={styles.encabezadoAudio}>
-              <Ionicons name="headset-outline" size={22} color="#6C3483" />
-              <Text style={styles.tituloAudio}>
+              <Ionicons
+                name="headset-outline"
+                size={22}
+                color={esOscuro ? "#E9D5FF" : "#6C3483"}
+              />
+              <Text
+                style={[
+                  styles.tituloAudio,
+                  esOscuro && { color: "#F3E8FF" },
+                ]}
+              >
                 Audioguía histórica ({lugar.audioguia.idioma.toUpperCase()})
               </Text>
             </View>
 
-            <Text style={styles.tiempoAudio}>
+            <Text
+              style={[
+                styles.tiempoAudio,
+                esOscuro && { color: "#D8B4FE" },
+              ]}
+            >
               Transcurrido: {formatearDuracion(estadoAudio.currentTime)} ·
               Faltan: {formatearDuracion(tiempoRestante)}
             </Text>
 
             <View style={styles.controlesAudio}>
               <Pressable
-                style={styles.botonControlAudio}
+                style={[
+                  styles.botonControlAudio,
+                  esOscuro && {
+                    backgroundColor: "#1E1B4B",
+                    borderColor: "#A855F7",
+                  },
+                ]}
                 onPress={() =>
                   player.seekTo(Math.max(0, estadoAudio.currentTime - 15))
                 }
               >
-                <Text style={styles.textoControlAudio}>-15s</Text>
+                <Text
+                  style={[
+                    styles.textoControlAudio,
+                    esOscuro && { color: "#E9D5FF" },
+                  ]}
+                >
+                  -15s
+                </Text>
               </Pressable>
 
               <Pressable
@@ -486,14 +579,27 @@ export default function PantallaDetalleLugar() {
               </Pressable>
 
               <Pressable
-                style={styles.botonControlAudio}
+                style={[
+                  styles.botonControlAudio,
+                  esOscuro && {
+                    backgroundColor: "#1E1B4B",
+                    borderColor: "#A855F7",
+                  },
+                ]}
                 onPress={() =>
                   player.seekTo(
                     Math.min(duracionTotal, estadoAudio.currentTime + 15),
                   )
                 }
               >
-                <Text style={styles.textoControlAudio}>+15s</Text>
+                <Text
+                  style={[
+                    styles.textoControlAudio,
+                    esOscuro && { color: "#E9D5FF" },
+                  ]}
+                >
+                  +15s
+                </Text>
               </Pressable>
             </View>
 
@@ -502,7 +608,12 @@ export default function PantallaDetalleLugar() {
               onPress={manejarDescargaOffline}
               disabled={descargandoAudio || Boolean(uriAudioOffline)}
             >
-              <Text style={styles.textoDescargaAudio}>
+              <Text
+                style={[
+                  styles.textoDescargaAudio,
+                  esOscuro && { color: "#E9D5FF" },
+                ]}
+              >
                 {uriAudioOffline
                   ? "✓ Guardada en el teléfono (disponible sin señal)"
                   : descargandoAudio

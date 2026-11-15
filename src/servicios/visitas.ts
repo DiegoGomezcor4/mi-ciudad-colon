@@ -3,6 +3,7 @@ import { OrigenVisita, RespuestaExito, Visita } from "../tipos";
 import { API_URL, peticionApi } from "./api";
 import { guardarFotoVisitaLocal } from "./archivos";
 import {
+  actualizarVisitaLocal,
   insertarVisitaLocal,
   listarVisitasLocales,
   marcarVisitaComoSincronizada,
@@ -152,44 +153,117 @@ export async function sincronizarVisitasPendientes(): Promise<{
     );
   }
 
+  const token = await obtenerTokenSesion();
+  if (!token || token.startsWith("jwt-colon-")) {
+    throw new Error(
+      "Iniciá sesión en la pestaña 'Yo' (ej. lucia@mail.com) para respaldar tus visitas en el servidor.",
+    );
+  }
+
   const todas = await listarVisitasLocales();
   const pendientes = todas.filter((v) => !v.sincronizada);
   let sincronizadasAhora = 0;
-  const token = await obtenerTokenSesion();
+  let ultimoError: string | null = null;
 
   for (const visita of pendientes) {
     try {
-      if (token) {
-        let urlFotoRemota: string | null = null;
-        if (visita.fotoUri) {
-          urlFotoRemota = await subirFotoAlServidor(visita.fotoUri, token);
-        }
-        await peticionApi<Visita>(
-          "/yo/visitas",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              id: visita.id,
-              lugarId: visita.lugarId,
-              fechaHora: visita.fechaHora,
-              origen: visita.origen,
-              fotoUri: urlFotoRemota,
-              nota: visita.nota,
-            }),
-          },
-          token,
-        );
+      let urlFotoRemota: string | null = null;
+      if (visita.fotoUri) {
+        urlFotoRemota = await subirFotoAlServidor(visita.fotoUri, token);
       }
+      await peticionApi<Visita>(
+        "/yo/visitas",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            id: visita.id,
+            lugarId: visita.lugarId,
+            fechaHora: visita.fechaHora,
+            origen: visita.origen,
+            fotoUri: urlFotoRemota,
+            nota: visita.nota,
+          }),
+        },
+        token,
+      );
       await marcarVisitaComoSincronizada(visita.id);
       sincronizadasAhora++;
-    } catch {
-      await marcarVisitaComoSincronizada(visita.id);
-      sincronizadasAhora++;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      // Si el servidor responde 409 ID_EN_USO ("Ese identificador ya está en uso"), ya estaba subida
+      if (msg.toLowerCase().includes("en uso")) {
+        await marcarVisitaComoSincronizada(visita.id);
+        sincronizadasAhora++;
+      } else {
+        ultimoError = msg || "No se pudo conectar con la API.";
+      }
     }
   }
 
   const actualizadas = await listarVisitasLocales();
   const pendientesRestantes = actualizadas.filter((v) => !v.sincronizada).length;
 
+  if (pendientes.length > 0 && sincronizadasAhora === 0 && ultimoError) {
+    throw new Error(ultimoError);
+  }
+
   return { sincronizadasAhora, pendientesRestantes };
+}
+
+// Permite agregar o editar la foto o la nota de una visita ya registrada (PATCH /yo/visitas/:id)
+export async function actualizarVisitaExistente(
+  visitaId: string,
+  cambios: { fotoUri?: string | null; nota?: string | null },
+): Promise<void> {
+  let fotoPersistente = cambios.fotoUri;
+  if (
+    cambios.fotoUri &&
+    !cambios.fotoUri.startsWith("http://") &&
+    !cambios.fotoUri.startsWith("https://")
+  ) {
+    fotoPersistente = await guardarFotoVisitaLocal(cambios.fotoUri, visitaId);
+  }
+
+  const notaLimpia =
+    cambios.nota !== undefined
+      ? cambios.nota && cambios.nota.trim().length > 0
+        ? cambios.nota.trim()
+        : null
+      : undefined;
+
+  await actualizarVisitaLocal(visitaId, {
+    fotoUri: fotoPersistente,
+    nota: notaLimpia,
+  });
+
+  const token = await obtenerTokenSesion();
+  if (token && !token.startsWith("jwt-colon-")) {
+    try {
+      const cuerpoPatch: Record<string, string | null> = {};
+      if (notaLimpia !== undefined) {
+        cuerpoPatch.nota = notaLimpia;
+      }
+      if (fotoPersistente !== undefined) {
+        if (fotoPersistente) {
+          const urlRemota = await subirFotoAlServidor(fotoPersistente, token);
+          if (urlRemota) {
+            cuerpoPatch.fotoUri = urlRemota;
+          }
+        } else {
+          cuerpoPatch.fotoUri = null;
+        }
+      }
+
+      if (Object.keys(cuerpoPatch).length > 0) {
+        await peticionApi<Visita>(
+          `/yo/visitas/${visitaId}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(cuerpoPatch),
+          },
+          token,
+        );
+      }
+    } catch {}
+  }
 }
