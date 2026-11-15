@@ -1,6 +1,7 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +19,7 @@ import {
 } from "../../servicios/eventos";
 import { obtenerLugarPorId } from "../../servicios/lugares";
 import { programarRecordatorioEvento } from "../../servicios/notificaciones";
+import { useTema } from "../../servicios/tema";
 import { Evento, Lugar } from "../../tipos";
 
 function calcularDuracionTexto(inicioIso: string, finIso: string | null): string {
@@ -29,6 +31,8 @@ function calcularDuracionTexto(inicioIso: string, finIso: string | null): string
 }
 
 export default function PantallaDetalleEvento() {
+  const { colores } = useTema();
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [evento, setEvento] = useState<Evento | null>(null);
   const [lugarAsociado, setLugarAsociado] = useState<Lugar | null>(null);
@@ -100,8 +104,8 @@ export default function PantallaDetalleEvento() {
 
   if (cargando || !evento) {
     return (
-      <View style={styles.centrado}>
-        <ActivityIndicator size="large" color="#1B4F72" />
+      <View style={[styles.centrado, { backgroundColor: colores.fondo }]}>
+        <ActivityIndicator size="large" color={colores.acento} />
       </View>
     );
   }
@@ -122,7 +126,10 @@ export default function PantallaDetalleEvento() {
         : `$${evento.precio.toLocaleString("es-AR")}`;
 
   return (
-    <ScrollView style={styles.contenedor}>
+    <ScrollView
+      style={[styles.contenedor, { backgroundColor: colores.fondo }]}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+    >
       <Stack.Screen options={{ title: evento.titulo }} />
 
       <View style={styles.cuerpo}>
@@ -132,13 +139,26 @@ export default function PantallaDetalleEvento() {
           </Text>
         </View>
 
-        <Text style={styles.titulo}>{evento.titulo}</Text>
+        <Text style={[styles.titulo, { color: colores.textoPrimario }]}>
+          {evento.titulo}
+        </Text>
 
-        <View style={styles.cajaInfo}>
-          <Text style={styles.dato}>🗓️ Cuándo empieza: {fechaInicio}</Text>
-          <Text style={styles.dato}>⏱️ Cuánto dura: {duracion}</Text>
-          <Text style={styles.dato}>🎟️ Precio: {precioTexto}</Text>
-          <Text style={styles.dato}>
+        <View
+          style={[
+            styles.cajaInfo,
+            { backgroundColor: colores.tarjeta, borderColor: colores.borde },
+          ]}
+        >
+          <Text style={[styles.dato, { color: colores.textoSecundario }]}>
+            🗓️ Cuándo empieza: {fechaInicio}
+          </Text>
+          <Text style={[styles.dato, { color: colores.textoSecundario }]}>
+            ⏱️ Cuánto dura: {duracion}
+          </Text>
+          <Text style={[styles.dato, { color: colores.textoSecundario }]}>
+            🎟️ Precio: {precioTexto}
+          </Text>
+          <Text style={[styles.dato, { color: colores.textoSecundario }]}>
             📍 Dónde:{" "}
             {lugarAsociado
               ? `${lugarAsociado.nombre} (${lugarAsociado.direccion})`
@@ -148,17 +168,25 @@ export default function PantallaDetalleEvento() {
 
         {lugarAsociado && (
           <Pressable
-            style={styles.botonIrAlLugar}
+            style={[
+              styles.botonIrAlLugar,
+              {
+                backgroundColor: colores.superficieSecundaria,
+                borderColor: colores.borde,
+              },
+            ]}
             onPress={() => router.push(`/lugares/${lugarAsociado.id}`)}
           >
-            <Ionicons name="business-outline" size={20} color="#1B4F72" />
-            <Text style={styles.textoIrAlLugar}>
+            <Ionicons name="business-outline" size={20} color={colores.acento} />
+            <Text style={[styles.textoIrAlLugar, { color: colores.acento }]}>
               Ver lugar del catálogo: {lugarAsociado.nombre} →
             </Text>
           </Pressable>
         )}
 
-        <Text style={styles.descripcion}>{evento.descripcion}</Text>
+        <Text style={[styles.descripcion, { color: colores.textoPrimario }]}>
+          {evento.descripcion}
+        </Text>
 
         <Pressable
           style={[
@@ -180,22 +208,47 @@ export default function PantallaDetalleEvento() {
         </Pressable>
 
         {/* Panel para probar la suspensión por lluvia pedida en el PDF */}
-        <View style={styles.cajaClima}>
-          <Text style={styles.tituloClima}>
+        <View
+          style={[
+            styles.cajaClima,
+            { backgroundColor: colores.tarjeta, borderColor: colores.borde },
+          ]}
+        >
+          <Text style={[styles.tituloClima, { color: colores.textoSecundario }]}>
             Aviso climático / Estado del evento
           </Text>
           <View style={styles.filaBotonesClima}>
             <Pressable
-              style={styles.botonClima}
+              style={[
+                styles.botonClima,
+                {
+                  backgroundColor: colores.superficieSecundaria,
+                  borderColor: colores.borde,
+                },
+              ]}
               onPress={() => cambiarEstadoDemo("suspendido")}
             >
-              <Text style={styles.textoBotonClima}>🌧️ Suspender por lluvia</Text>
+              <Text
+                style={[styles.textoBotonClima, { color: colores.textoPrimario }]}
+              >
+                🌧️ Suspender por lluvia
+              </Text>
             </Pressable>
             <Pressable
-              style={styles.botonClima}
+              style={[
+                styles.botonClima,
+                {
+                  backgroundColor: colores.superficieSecundaria,
+                  borderColor: colores.borde,
+                },
+              ]}
               onPress={() => cambiarEstadoDemo("cancelado")}
             >
-              <Text style={styles.textoBotonClima}>❌ Marcar cancelado</Text>
+              <Text
+                style={[styles.textoBotonClima, { color: colores.textoPrimario }]}
+              >
+                ❌ Marcar cancelado
+              </Text>
             </Pressable>
           </View>
         </View>

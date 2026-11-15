@@ -14,6 +14,7 @@ import {
   obtenerMisEventosGuardadosIds,
 } from "../../servicios/eventos";
 import { obtenerLugares } from "../../servicios/lugares";
+import { useTema } from "../../servicios/tema";
 import { EstadoEvento, Evento, Lugar } from "../../tipos";
 
 function formatearFechaHora(iso: string): string {
@@ -49,6 +50,7 @@ function estiloPorEstado(estado: EstadoEvento): {
 }
 
 export default function PantallaAgenda() {
+  const { esOscuro, colores } = useTema();
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [lugares, setLugares] = useState<Lugar[]>([]);
   const [guardadosIds, setGuardadosIds] = useState<string[]>([]);
@@ -73,7 +75,7 @@ export default function PantallaAgenda() {
 
   useFocusEffect(
     useCallback(() => {
-      cargarAgenda();
+      void cargarAgenda();
     }, [cargarAgenda]),
   );
 
@@ -83,22 +85,27 @@ export default function PantallaAgenda() {
 
   if (cargando) {
     return (
-      <View style={styles.centrado}>
-        <ActivityIndicator size="large" color="#1B4F72" />
+      <View style={[styles.centrado, { backgroundColor: colores.fondo }]}>
+        <ActivityIndicator size="large" color={colores.primario} />
       </View>
     );
   }
 
   return (
-    <View style={styles.contenedor}>
+    <View style={[styles.contenedor, { backgroundColor: colores.fondo }]}>
       <View style={styles.barraFiltros}>
         <Pressable
-          style={[styles.botonFiltro, !soloGuardados && styles.filtroActivo]}
+          style={[
+            styles.botonFiltro,
+            { backgroundColor: esOscuro ? "#1E293B" : "#E5E8EC" },
+            !soloGuardados && styles.filtroActivo,
+          ]}
           onPress={() => setSoloGuardados(false)}
         >
           <Text
             style={[
               styles.textoFiltro,
+              { color: colores.texto },
               !soloGuardados && styles.textoFiltroActivo,
             ]}
           >
@@ -107,12 +114,17 @@ export default function PantallaAgenda() {
         </Pressable>
 
         <Pressable
-          style={[styles.botonFiltro, soloGuardados && styles.filtroActivo]}
+          style={[
+            styles.botonFiltro,
+            { backgroundColor: esOscuro ? "#1E293B" : "#E5E8EC" },
+            soloGuardados && styles.filtroActivo,
+          ]}
           onPress={() => setSoloGuardados(true)}
         >
           <Text
             style={[
               styles.textoFiltro,
+              { color: colores.texto },
               soloGuardados && styles.textoFiltroActivo,
             ]}
           >
@@ -125,7 +137,9 @@ export default function PantallaAgenda() {
         data={eventosMostrados}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
-          <Text style={styles.textoVacio}>
+          <Text
+            style={[styles.textoVacio, { color: colores.textoSecundario }]}
+          >
             No hay eventos guardados todavía.
           </Text>
         }
@@ -147,7 +161,13 @@ export default function PantallaAgenda() {
 
           return (
             <Pressable
-              style={styles.tarjeta}
+              style={[
+                styles.tarjeta,
+                {
+                  backgroundColor: colores.tarjeta,
+                  borderColor: colores.borde,
+                },
+              ]}
               onPress={() => router.push(`/eventos/${item.id}`)}
             >
               <View style={styles.filaSuperior}>
@@ -170,17 +190,33 @@ export default function PantallaAgenda() {
                 <View style={styles.filaDerecha}>
                   <Text style={styles.precio}>{precioTexto}</Text>
                   {estaGuardado && (
-                    <Ionicons name="notifications" size={18} color="#1B4F72" />
+                    <Ionicons
+                      name="notifications"
+                      size={18}
+                      color={colores.primario}
+                    />
                   )}
                 </View>
               </View>
 
-              <Text style={styles.titulo}>{item.titulo}</Text>
-              <Text style={styles.fecha}>
+              <Text style={[styles.titulo, { color: colores.texto }]}>
+                {item.titulo}
+              </Text>
+              <Text style={[styles.fecha, { color: colores.primario }]}>
                 🗓️ {formatearFechaHora(item.inicio)}
               </Text>
-              <Text style={styles.ubicacion}>📍 {ubicacionTexto}</Text>
-              <Text style={styles.descripcion} numberOfLines={2}>
+              <Text
+                style={[styles.ubicacion, { color: colores.textoSecundario }]}
+              >
+                📍 {ubicacionTexto}
+              </Text>
+              <Text
+                style={[
+                  styles.descripcion,
+                  { color: colores.textoSecundario },
+                ]}
+                numberOfLines={2}
+              >
                 {item.descripcion}
               </Text>
             </Pressable>

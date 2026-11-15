@@ -13,6 +13,32 @@ export const PREFERENCIAS_POR_DEFECTO: Preferencias = {
   tema: "sistema",
 };
 
+type ListenerPreferencias = (prefs: Preferencias) => void;
+const listenersPreferencias = new Set<ListenerPreferencias>();
+let cachePreferenciasActual: Preferencias = PREFERENCIAS_POR_DEFECTO;
+
+export function obtenerPreferenciasSincronas(): Preferencias {
+  return cachePreferenciasActual;
+}
+
+export function suscribirPreferencias(
+  listener: ListenerPreferencias,
+): () => void {
+  listenersPreferencias.add(listener);
+  return () => {
+    listenersPreferencias.delete(listener);
+  };
+}
+
+function notificarCambioPreferencias(prefs: Preferencias): void {
+  cachePreferenciasActual = prefs;
+  listenersPreferencias.forEach((fn) => {
+    try {
+      fn(prefs);
+    } catch {}
+  });
+}
+
 async function leerItem(clave: string): Promise<string | null> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -41,20 +67,32 @@ export async function obtenerPreferenciasLocales(): Promise<Preferencias> {
   try {
     const guardado = await leerItem(CLAVE_PREFERENCIAS);
     if (!guardado) {
-      return PREFERENCIAS_POR_DEFECTO;
+      return cachePreferenciasActual;
     }
-    return {
+    const combinadas: Preferencias = {
       ...PREFERENCIAS_POR_DEFECTO,
       ...(JSON.parse(guardado) as Partial<Preferencias>),
     };
+    if (
+      combinadas.tema !== cachePreferenciasActual.tema ||
+      combinadas.radioAvisoMetros !==
+        cachePreferenciasActual.radioAvisoMetros ||
+      combinadas.avisarProximidad !== cachePreferenciasActual.avisarProximidad
+    ) {
+      notificarCambioPreferencias(combinadas);
+    } else {
+      cachePreferenciasActual = combinadas;
+    }
+    return combinadas;
   } catch {
-    return PREFERENCIAS_POR_DEFECTO;
+    return cachePreferenciasActual;
   }
 }
 
 export async function guardarPreferenciasLocales(
   preferencias: Preferencias,
 ): Promise<void> {
+  notificarCambioPreferencias(preferencias);
   await guardarItem(CLAVE_PREFERENCIAS, JSON.stringify(preferencias));
 }
 

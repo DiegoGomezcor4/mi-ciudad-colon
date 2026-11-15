@@ -6,6 +6,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Alert,
   Pressable,
@@ -22,9 +23,12 @@ import {
   obtenerLugarPorQr,
 } from "../../servicios/lugares";
 import { registrarNuevaVisita } from "../../servicios/visitas";
+import { useTema } from "../../servicios/tema";
 import { Lugar, OrigenVisita } from "../../tipos";
 
 export default function PantallaNuevaVisita() {
+  const { colores } = useTema();
+  const insets = useSafeAreaInsets();
   const { lugarId: lugarIdParam } = useLocalSearchParams<{
     lugarId?: string;
   }>();
@@ -209,24 +213,32 @@ export default function PantallaNuevaVisita() {
   };
 
   return (
-    <ScrollView style={styles.contenedor}>
-      <Text style={styles.subtitulo}>
+    <ScrollView
+      style={[styles.contenedor, { backgroundColor: colores.fondo }]}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 36 }}
+    >
+      <Text style={[styles.subtitulo, { color: colores.textoPrimario }]}>
         1. ¿Cómo querés registrar que estuviste acá?
       </Text>
 
       <View style={styles.filaModos}>
         <Pressable
-          style={[styles.botonModo, origen === "qr" && styles.modoActivo]}
+          style={[
+            styles.botonModo,
+            { backgroundColor: colores.tarjeta, borderColor: colores.acento },
+            origen === "qr" && styles.modoActivo,
+          ]}
           onPress={abrirEscanerQr}
         >
           <Ionicons
             name="qr-code-outline"
             size={22}
-            color={origen === "qr" ? "#FFFFFF" : "#1B4F72"}
+            color={origen === "qr" ? "#FFFFFF" : colores.acento}
           />
           <Text
             style={[
               styles.textoBotonModo,
+              { color: colores.acento },
               origen === "qr" && styles.textoModoActivo,
             ]}
           >
@@ -235,17 +247,22 @@ export default function PantallaNuevaVisita() {
         </Pressable>
 
         <Pressable
-          style={[styles.botonModo, origen === "gps" && styles.modoActivo]}
+          style={[
+            styles.botonModo,
+            { backgroundColor: colores.tarjeta, borderColor: colores.acento },
+            origen === "gps" && styles.modoActivo,
+          ]}
           onPress={verificarCercaniaGps}
         >
           <Ionicons
             name="locate-outline"
             size={22}
-            color={origen === "gps" ? "#FFFFFF" : "#1B4F72"}
+            color={origen === "gps" ? "#FFFFFF" : colores.acento}
           />
           <Text
             style={[
               styles.textoBotonModo,
+              { color: colores.acento },
               origen === "gps" && styles.textoModoActivo,
             ]}
           >
@@ -254,7 +271,11 @@ export default function PantallaNuevaVisita() {
         </Pressable>
 
         <Pressable
-          style={[styles.botonModo, origen === "manual" && styles.modoActivo]}
+          style={[
+            styles.botonModo,
+            { backgroundColor: colores.tarjeta, borderColor: colores.acento },
+            origen === "manual" && styles.modoActivo,
+          ]}
           onPress={() => {
             setOrigen("manual");
             setMostrarEscanerQr(false);
@@ -263,11 +284,12 @@ export default function PantallaNuevaVisita() {
           <Ionicons
             name="hand-left-outline"
             size={22}
-            color={origen === "manual" ? "#FFFFFF" : "#1B4F72"}
+            color={origen === "manual" ? "#FFFFFF" : colores.acento}
           />
           <Text
             style={[
               styles.textoBotonModo,
+              { color: colores.acento },
               origen === "manual" && styles.textoModoActivo,
             ]}
           >
@@ -296,7 +318,9 @@ export default function PantallaNuevaVisita() {
         </View>
       )}
 
-      <Text style={styles.subtitulo}>2. Lugar visitado</Text>
+      <Text style={[styles.subtitulo, { color: colores.textoPrimario }]}>
+        2. Lugar visitado
+      </Text>
       <View style={styles.listaLugares}>
         {lugares.map((lug) => {
           const seleccionado = lug.id === lugarSeleccionadoId;
@@ -305,6 +329,7 @@ export default function PantallaNuevaVisita() {
               key={lug.id}
               style={[
                 styles.itemLugar,
+                { backgroundColor: colores.tarjeta, borderColor: colores.borde },
                 seleccionado && styles.itemLugarActivo,
               ]}
               onPress={() => setLugarSeleccionadoId(lug.id)}
@@ -312,6 +337,7 @@ export default function PantallaNuevaVisita() {
               <Text
                 style={[
                   styles.textoItemLugar,
+                  { color: colores.textoPrimario },
                   seleccionado && styles.textoItemLugarActivo,
                 ]}
               >
@@ -323,16 +349,34 @@ export default function PantallaNuevaVisita() {
         })}
       </View>
 
-      <Text style={styles.subtitulo}>3. Sumá una foto de tu visita</Text>
+      <Text style={[styles.subtitulo, { color: colores.textoPrimario }]}>
+        3. Sumá una foto de tu visita
+      </Text>
       <View style={styles.filaFotos}>
-        <Pressable style={styles.botonFoto} onPress={sacarFotoConCamara}>
-          <Ionicons name="camera-outline" size={20} color="#1B4F72" />
-          <Text style={styles.textoBotonFoto}>Sacar foto</Text>
+        <Pressable
+          style={[
+            styles.botonFoto,
+            { backgroundColor: colores.tarjeta, borderColor: colores.acento },
+          ]}
+          onPress={sacarFotoConCamara}
+        >
+          <Ionicons name="camera-outline" size={20} color={colores.acento} />
+          <Text style={[styles.textoBotonFoto, { color: colores.acento }]}>
+            Sacar foto
+          </Text>
         </Pressable>
 
-        <Pressable style={styles.botonFoto} onPress={elegirFotoDeGaleria}>
-          <Ionicons name="images-outline" size={20} color="#1B4F72" />
-          <Text style={styles.textoBotonFoto}>Elegir de galería</Text>
+        <Pressable
+          style={[
+            styles.botonFoto,
+            { backgroundColor: colores.tarjeta, borderColor: colores.acento },
+          ]}
+          onPress={elegirFotoDeGaleria}
+        >
+          <Ionicons name="images-outline" size={20} color={colores.acento} />
+          <Text style={[styles.textoBotonFoto, { color: colores.acento }]}>
+            Elegir de galería
+          </Text>
         </Pressable>
       </View>
 
@@ -352,11 +396,20 @@ export default function PantallaNuevaVisita() {
         </View>
       )}
 
-      <Text style={styles.subtitulo}>4. Escribí una nota corta</Text>
+      <Text style={[styles.subtitulo, { color: colores.textoPrimario }]}>
+        4. Escribí una nota corta
+      </Text>
       <TextInput
-        style={styles.inputNota}
+        style={[
+          styles.inputNota,
+          {
+            backgroundColor: colores.fondoInput,
+            borderColor: colores.borde,
+            color: colores.textoPrimario,
+          },
+        ]}
         placeholder="Ej: Hacía 35 grados pero el río estaba espectacular..."
-        placeholderTextColor="#7F8C8D"
+        placeholderTextColor={colores.textoTerciario}
         value={nota}
         onChangeText={setNota}
         multiline

@@ -14,6 +14,7 @@ import {
   calcularDistanciaMetros,
   formatearDistancia,
 } from "../servicios/lugares";
+import { useTema } from "../servicios/tema";
 import { Coordenadas, Lugar } from "../tipos";
 
 interface PropsMapaLugares {
@@ -25,6 +26,7 @@ interface PropsMapaLugares {
   centroInicial?: Coordenadas;
   modoCompacto?: boolean;
   alInteractuarMapa?: (activo: boolean) => void;
+  alSolicitarUbicacionGps?: () => Promise<Coordenadas | null>;
 }
 
 const CENTRO_CIUDAD_COLON: Coordenadas = {
@@ -43,8 +45,8 @@ const CENTRO_REGION_PALMAR: Coordenadas = {
 };
 
 const TAMANO_TILE = 256;
-const ZOOM_MIN = 10;
-const ZOOM_MAX = 17;
+const ZOOM_MIN = 5;
+const ZOOM_MAX = 18;
 
 const HEADERS_TILE_MAPA = {
   "User-Agent": "MiCiudadColonApp/1.0 (UNER Desarrollo Movil)",
@@ -59,7 +61,8 @@ function latLonAPixelGlobal(
 ): { x: number; y: number } {
   const escala = Math.pow(2, zoom) * TAMANO_TILE;
   const x = ((longitud + 180) / 360) * escala;
-  const latRad = (latitud * Math.PI) / 180;
+  const latClamped = Math.max(-85, Math.min(85, latitud));
+  const latRad = (latClamped * Math.PI) / 180;
   const y =
     ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
     escala;
@@ -77,8 +80,8 @@ function pixelGlobalALatLon(
   const latitud =
     (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
   return {
-    latitud: Math.max(-34, Math.min(-30, latitud)),
-    longitud: Math.max(-60, Math.min(-56, longitud)),
+    latitud: Math.max(-85, Math.min(85, latitud)),
+    longitud: Math.max(-180, Math.min(180, longitud)),
   };
 }
 
@@ -120,8 +123,10 @@ export default function MapaLugares({
   centroInicial,
   modoCompacto = false,
   alInteractuarMapa,
+  alSolicitarUbicacionGps,
 }: PropsMapaLugares) {
-  // Por defecto elegimos un lugar del casco urbano de Colón para que la vista inicial muestre las calles y la costanera bien distribuidas
+  const { esOscuro, colores } = useTema();
+
   const lugarUrbanoInicial = useMemo(() => {
     if (lugares.length === 0) return null;
     const enCiudad = lugares.find(
@@ -141,7 +146,7 @@ export default function MapaLugares({
   );
   const [dimensiones, setDimensiones] = useState({ ancho: 360, alto: altura });
   const [vistaActiva, setVistaActiva] = useState<
-    "ciudad" | "colonia" | "region"
+    "ciudad" | "colonia" | "region" | "mi-gps"
   >("ciudad");
   const [capaSatelite, setCapaSatelite] = useState(false);
 
@@ -236,7 +241,6 @@ export default function MapaLugares({
   const moverGestoConTouches = (e: GestureResponderEvent) => {
     const touches = e.nativeEvent.touches;
 
-    // Si el usuario pasó de 1 dedo a 2 dedos en medio del movimiento, inicializamos el pinch
     if (
       touches.length >= 2 &&
       (!estadoGestoRef.current || estadoGestoRef.current.modo !== "pinch")
@@ -274,7 +278,6 @@ export default function MapaLugares({
         setZoom(nuevoZoomEntero);
       }
 
-      // También permitir desplazar el centro mientras se pellizca con dos dedos
       const dx = midX - gesto.startX;
       const dy = midY - gesto.startY;
       const pixelBaseEnNuevoZoom = latLonAPixelGlobal(
@@ -309,7 +312,6 @@ export default function MapaLugares({
   const finalizarGesto = (e: GestureResponderEvent) => {
     const touchesRestantes = e.nativeEvent.touches?.length ?? 0;
     if (touchesRestantes === 1 && estadoGestoRef.current?.modo === "pinch") {
-      // Si soltó uno de los dos dedos, continuar suavemente con arrastre de 1 dedo
       const t0 = e.nativeEvent.touches[0];
       const p = latLonAPixelGlobal(centro.latitud, centro.longitud, zoom);
       setEscalaPinch(1);
@@ -332,7 +334,9 @@ export default function MapaLugares({
     alInteractuarMapa?.(false);
   };
 
-  const cambiarVista = (modo: "ciudad" | "colonia" | "region") => {
+  const cambiarVista = async (
+    modo: "ciudad" | "colonia" | "region" | "mi-gps",
+  ) => {
     setVistaActiva(modo);
     setEscalaPinch(1);
     if (modo === "ciudad") {
@@ -341,19 +345,30 @@ export default function MapaLugares({
     } else if (modo === "colonia") {
       setCentroManual(CENTRO_COLONIA_SAN_JOSE);
       setZoom(12);
-    } else {
+    } else if (modo === "region") {
       setCentroManual(CENTRO_REGION_PALMAR);
       setZoom(10);
+    } else if (modo === "mi-gps") {
+      if (ubicacionUsuario) {
+        setCentroManual(ubicacionUsuario);
+        setZoom(15);
+      } else if (alSolicitarUbicacionGps) {
+        const obtenida = await alSolicitarUbicacionGps();
+        if (obtenida) {
+          setCentroManual(obtenida);
+          setZoom(15);
+        }
+      }
     }
   };
 
   const centrarEnLugar = (lugar: Lugar) => {
     setLugarSeleccionadoId(lugar.id);
-    setCentroManual(lugar.coordenadas);
+    setCentroManual({ ...lugar.coordenadas });
     if (lugar.coordenadas.latitud > -32.0 || lugar.coordenadas.longitud < -58.3) {
-      if (zoom > 13) setZoom(12);
-    } else if (zoom < 14) {
-      setZoom(15);
+      setZoom(13);
+    } else {
+      setZoom(16);
     }
   };
 
@@ -372,7 +387,6 @@ export default function MapaLugares({
   const origenViewportX = pixelCentro.x - dimensiones.ancho / 2;
   const origenViewportY = pixelCentro.y - dimensiones.alto / 2;
 
-  // Calcular qué cuadrículas (tiles 256x256) de OpenStreetMap / Esri World Street Map cubren el visor actual (con margen extra para arrastre fluido)
   const tilesVisibles = useMemo(() => {
     const maxTile = Math.pow(2, zoom) - 1;
     const minTileX = Math.max(
@@ -418,7 +432,6 @@ export default function MapaLugares({
     return lista;
   }, [zoom, origenViewportX, origenViewportY, dimensiones, capaSatelite]);
 
-  // Calcular posiciones en pantalla de los marcadores y separar ligeramente los que están muy juntos para que nunca se tapen
   const marcadoresEnPantalla = useMemo(() => {
     const crudos = lugares.map((lugar) => {
       const p = latLonAPixelGlobal(
@@ -478,10 +491,10 @@ export default function MapaLugares({
     const x = p.x - origenViewportX;
     const y = p.y - origenViewportY;
     if (
-      x < 0 ||
-      x > dimensiones.ancho ||
-      y < 0 ||
-      y > dimensiones.alto
+      x < -40 ||
+      x > dimensiones.ancho + 40 ||
+      y < -40 ||
+      y > dimensiones.alto + 40
     ) {
       return null;
     }
@@ -496,14 +509,30 @@ export default function MapaLugares({
   };
 
   return (
-    <View style={styles.tarjetaMapa}>
+    <View
+      style={[
+        styles.tarjetaMapa,
+        {
+          borderColor: colores.borde,
+          backgroundColor: colores.tarjeta,
+        },
+      ]}
+    >
       {/* Barra superior separada del lienzo para que ningún pin tape los textos ni botones */}
       {!modoCompacto && (
-        <View style={styles.barraSuperior}>
+        <View
+          style={[
+            styles.barraSuperior,
+            {
+              backgroundColor: esOscuro ? "#1E293B" : "#F4F9FD",
+              borderBottomColor: colores.borde,
+            },
+          ]}
+        >
           <View style={styles.filaTitulo}>
-            <Ionicons name="map" size={16} color="#1B4F72" />
-            <Text style={styles.textoTituloMapa}>
-              Mapa interactivo ({lugares.length} lugares)
+            <Ionicons name="map" size={15} color={colores.primario} />
+            <Text style={[styles.textoTituloMapa, { color: colores.primario }]}>
+              Mapa ({lugares.length})
             </Text>
           </View>
 
@@ -511,9 +540,26 @@ export default function MapaLugares({
             <Pressable
               style={[
                 styles.chipRegion,
+                vistaActiva === "mi-gps" && styles.chipMiGpsActivo,
+              ]}
+              onPress={() => void cambiarVista("mi-gps")}
+            >
+              <Text
+                style={[
+                  styles.textoChipRegion,
+                  vistaActiva === "mi-gps" && styles.textoChipRegionActivo,
+                ]}
+              >
+                📍 Mi GPS
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={[
+                styles.chipRegion,
                 vistaActiva === "ciudad" && styles.chipRegionActivo,
               ]}
-              onPress={() => cambiarVista("ciudad")}
+              onPress={() => void cambiarVista("ciudad")}
             >
               <Text
                 style={[
@@ -530,7 +576,7 @@ export default function MapaLugares({
                 styles.chipRegion,
                 vistaActiva === "colonia" && styles.chipRegionActivo,
               ]}
-              onPress={() => cambiarVista("colonia")}
+              onPress={() => void cambiarVista("colonia")}
             >
               <Text
                 style={[
@@ -547,7 +593,7 @@ export default function MapaLugares({
                 styles.chipRegion,
                 vistaActiva === "region" && styles.chipRegionActivo,
               ]}
-              onPress={() => cambiarVista("region")}
+              onPress={() => void cambiarVista("region")}
             >
               <Text
                 style={[
@@ -583,22 +629,32 @@ export default function MapaLugares({
       <View
         style={[styles.visorMapa, { height: altura }]}
         onLayout={manejarLayout}
-        onStartShouldSetResponder={() => true}
-        onMoveShouldSetResponder={() => true}
-        onResponderTerminationRequest={() => false}
-        onTouchStart={iniciarGestoConTouches}
-        onTouchMove={moverGestoConTouches}
-        onTouchEnd={finalizarGesto}
-        onTouchCancel={finalizarGesto}
       >
-        {/* Capa escalable durante el gesto de pellizco (pinch-to-zoom) */}
         <View
           style={[
             styles.capaInteractiva,
             escalaPinch !== 1 && { transform: [{ scale: escalaPinch }] },
           ]}
+          onStartShouldSetResponder={() => true}
+          onMoveShouldSetResponder={(e) => {
+            const touches = e.nativeEvent.touches;
+            if (touches.length >= 2) return true;
+            const g = estadoGestoRef.current;
+            if (!g || touches.length === 0) return false;
+            return (
+              Math.hypot(
+                touches[0].pageX - g.startX,
+                touches[0].pageY - g.startY,
+              ) > 8
+            );
+          }}
+          onResponderTerminationRequest={() => false}
+          onTouchStart={iniciarGestoConTouches}
+          onTouchMove={moverGestoConTouches}
+          onTouchEnd={finalizarGesto}
+          onTouchCancel={finalizarGesto}
         >
-          {/* Fondo urbano de respaldo (se ve mientras cargan los tiles o sin internet) */}
+          {/* Fondo urbano de respaldo */}
           <View style={styles.fondoRespaldoOffline}>
             <View style={styles.franjaRioOffline}>
               <Text style={styles.textoRioOffline}>Río Uruguay</Text>
@@ -625,17 +681,24 @@ export default function MapaLugares({
             />
           ))}
 
-          {/* Punto azul de ubicación GPS actual del turista */}
+          {/* Marcador destacado de ubicación GPS actual del usuario con halo y etiqueta */}
           {puntoUsuarioPantalla && (
             <View
+              pointerEvents="none"
               style={[
-                styles.puntoUsuario,
+                styles.contenedorMiGps,
                 {
-                  left: puntoUsuarioPantalla.x - 8,
-                  top: puntoUsuarioPantalla.y - 8,
+                  left: puntoUsuarioPantalla.x - 22,
+                  top: puntoUsuarioPantalla.y - 22,
                 },
               ]}
-            />
+            >
+              <View style={styles.haloUsuario} />
+              <View style={styles.puntoUsuario} />
+              <View style={styles.etiquetaMiGps}>
+                <Text style={styles.textoEtiquetaMiGps}>Tú estás aquí</Text>
+              </View>
+            </View>
           )}
 
           {/* Marcadores de lugares categorizados por color e ícono */}
@@ -653,8 +716,14 @@ export default function MapaLugares({
                   },
                   seleccionado && styles.pinContenedorActivo,
                 ]}
-                onPress={() => setLugarSeleccionadoId(lugar.id)}
-                hitSlop={6}
+                onPress={() => {
+                  if (seleccionado) {
+                    alSeleccionarLugar(lugar.id);
+                  } else {
+                    setLugarSeleccionadoId(lugar.id);
+                  }
+                }}
+                hitSlop={8}
               >
                 <View
                   style={[
@@ -688,7 +757,7 @@ export default function MapaLugares({
           })}
         </View>
 
-        {/* Controles flotantes de Zoom (+/-) a la derecha */}
+        {/* Controles flotantes de Zoom (+/-) y botón de centrar en mi GPS a la derecha */}
         <View style={styles.controlesZoom}>
           <Pressable
             style={styles.botonZoom}
@@ -705,46 +774,18 @@ export default function MapaLugares({
           >
             <Ionicons name="remove" size={20} color="#1B4F72" />
           </Pressable>
+          <View style={styles.divisorZoom} />
+          <Pressable
+            style={[
+              styles.botonZoom,
+              vistaActiva === "mi-gps" && { backgroundColor: "#DBEAFE" },
+            ]}
+            onPress={() => void cambiarVista("mi-gps")}
+            accessibilityLabel="Ir a mi ubicación GPS"
+          >
+            <Ionicons name="navigate-circle" size={22} color="#2563EB" />
+          </Pressable>
         </View>
-
-        {/* Tarjeta inferior flotante del lugar seleccionado */}
-        {lugarPinActivo && !modoCompacto && (
-          <View style={styles.calloutFlotante}>
-            <Pressable
-              style={styles.infoCallout}
-              onPress={() => alSeleccionarLugar(lugarPinActivo.id)}
-            >
-              <Text style={styles.tituloCallout} numberOfLines={1}>
-                📍 {lugarPinActivo.nombre}
-              </Text>
-              <Text style={styles.distanciaCallout} numberOfLines={1}>
-                {ubicacionUsuario
-                  ? `${formatearDistancia(
-                      calcularDistanciaMetros(
-                        ubicacionUsuario,
-                        lugarPinActivo.coordenadas,
-                      ),
-                    )} · ${lugarPinActivo.direccion}`
-                  : lugarPinActivo.direccion}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={styles.botonCentrarPin}
-              onPress={() => centrarEnLugar(lugarPinActivo)}
-              accessibilityLabel="Centrar en este lugar"
-            >
-              <Ionicons name="locate" size={16} color="#1B4F72" />
-            </Pressable>
-
-            <Pressable
-              style={styles.botonVerDetalle}
-              onPress={() => alSeleccionarLugar(lugarPinActivo.id)}
-            >
-              <Text style={styles.accionCallout}>Ver →</Text>
-            </Pressable>
-          </View>
-        )}
 
         {/* En modo compacto (pantalla de detalle de un lugar), botón directo para abrir en Google Maps */}
         {modoCompacto && lugares[0] && (
@@ -759,6 +800,71 @@ export default function MapaLugares({
           </Pressable>
         )}
       </View>
+
+      {/* Barra inferior del lugar seleccionado (fuera del lienzo táctil para responder siempre al toque y no tapar pines) */}
+      {lugarPinActivo && !modoCompacto && (
+        <View
+          style={[
+            styles.barraInferiorLugar,
+            {
+              backgroundColor: esOscuro ? "#1E293B" : "#FFFFFF",
+              borderTopColor: colores.borde,
+            },
+          ]}
+        >
+          <Pressable
+            style={styles.infoCallout}
+            onPress={() => alSeleccionarLugar(lugarPinActivo.id)}
+          >
+            <Text
+              style={[styles.tituloCallout, { color: colores.texto }]}
+              numberOfLines={1}
+            >
+              📍 {lugarPinActivo.nombre}
+            </Text>
+            <Text
+              style={[
+                styles.distanciaCallout,
+                { color: colores.textoSecundario },
+              ]}
+              numberOfLines={1}
+            >
+              {ubicacionUsuario
+                ? `${formatearDistancia(
+                    calcularDistanciaMetros(
+                      ubicacionUsuario,
+                      lugarPinActivo.coordenadas,
+                    ),
+                  )} · ${lugarPinActivo.direccion}`
+                : lugarPinActivo.direccion}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.botonCentrarPin,
+              {
+                backgroundColor: esOscuro ? "#172554" : "#EBF5FB",
+                borderColor: colores.borde,
+              },
+            ]}
+            onPress={() => centrarEnLugar(lugarPinActivo)}
+            accessibilityLabel="Enfocar este lugar en el mapa"
+          >
+            <Ionicons name="locate" size={16} color={colores.primario} />
+            <Text style={[styles.textoBotonCentrar, { color: colores.primario }]}>
+              Enfocar
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.botonVerDetalle}
+            onPress={() => alSeleccionarLugar(lugarPinActivo.id)}
+          >
+            <Text style={styles.accionCallout}>Ver ficha →</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -788,7 +894,7 @@ const styles = StyleSheet.create({
   filaTitulo: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
   },
   textoTituloMapa: {
     fontSize: 12,
@@ -798,16 +904,20 @@ const styles = StyleSheet.create({
   selectorRegiones: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 4,
   },
   chipRegion: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 4,
     borderRadius: 10,
     backgroundColor: "#E5EEF5",
   },
   chipRegionActivo: {
     backgroundColor: "#1B4F72",
+  },
+  chipMiGpsActivo: {
+    backgroundColor: "#2563EB",
   },
   textoChipRegion: {
     fontSize: 11,
@@ -895,16 +1005,47 @@ const styles = StyleSheet.create({
     borderRightColor: "transparent",
     marginTop: -1,
   },
-  puntoUsuario: {
+  contenedorMiGps: {
     position: "absolute",
+    width: 44,
+    height: 44,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 28,
+  },
+  haloUsuario: {
+    position: "absolute",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(37, 99, 235, 0.25)",
+    borderWidth: 1.5,
+    borderColor: "rgba(37, 99, 235, 0.6)",
+  },
+  puntoUsuario: {
     width: 16,
     height: 16,
     borderRadius: 8,
     backgroundColor: "#2563EB",
     borderWidth: 3,
     borderColor: "#FFFFFF",
-    zIndex: 20,
+    elevation: 5,
+  },
+  etiquetaMiGps: {
+    position: "absolute",
+    top: -22,
+    backgroundColor: "#1D4ED8",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
     elevation: 4,
+    minWidth: 86,
+    alignItems: "center",
+  },
+  textoEtiquetaMiGps: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
   },
   controlesZoom: {
     position: "absolute",
@@ -928,22 +1069,14 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#E2E8F0",
   },
-  calloutFlotante: {
-    position: "absolute",
-    left: 10,
-    right: 10,
-    bottom: 10,
-    backgroundColor: "rgba(255, 255, 255, 0.97)",
-    borderRadius: 12,
+  barraInferiorLugar: {
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 10,
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#CBD5E1",
-    elevation: 6,
+    borderTopWidth: 1,
+    borderTopColor: "#CBD5E1",
     gap: 8,
-    zIndex: 30,
   },
   infoCallout: {
     flex: 1,
@@ -959,19 +1092,25 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   botonCentrarPin: {
-    width: 32,
-    height: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
     borderRadius: 8,
     backgroundColor: "#EBF5FB",
-    justifyContent: "center",
-    alignItems: "center",
     borderWidth: 1,
     borderColor: "#AED6F1",
   },
+  textoBotonCentrar: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#1B4F72",
+  },
   botonVerDetalle: {
     backgroundColor: "#1B4F72",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
     borderRadius: 8,
   },
   accionCallout: {

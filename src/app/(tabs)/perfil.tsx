@@ -17,6 +17,7 @@ import {
   PREFERENCIAS_POR_DEFECTO,
 } from "../../servicios/preferencias";
 import { autenticarConBiometria } from "../../servicios/seguridad";
+import { useTema } from "../../servicios/tema";
 import {
   actualizarPreferenciasUsuario,
   cambiarEstadoFavorito,
@@ -35,6 +36,7 @@ const TEMAS_DISPONIBLES: Preferencias["tema"][] = [
 ];
 
 export default function PantallaPerfilYFavoritos() {
+  const { esOscuro, colores } = useTema();
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [bloqueadoBiometria, setBloqueadoBiometria] = useState(false);
   const [email, setEmail] = useState("lucia@mail.com");
@@ -63,7 +65,7 @@ export default function PantallaPerfilYFavoritos() {
 
   useFocusEffect(
     useCallback(() => {
-      cargarDatos();
+      void cargarDatos();
     }, [cargarDatos]),
   );
 
@@ -115,14 +117,23 @@ export default function PantallaPerfilYFavoritos() {
   };
 
   return (
-    <ScrollView style={styles.contenedor}>
+    <ScrollView
+      style={[styles.contenedor, { backgroundColor: colores.fondo }]}
+    >
       {/* 1. Sección Favoritos (accesible con o sin cuenta, PDF pág. 3) */}
-      <View style={styles.bloque}>
-        <Text style={styles.tituloSeccion}>
+      <View
+        style={[
+          styles.bloque,
+          { backgroundColor: colores.tarjeta, borderColor: colores.borde },
+        ]}
+      >
+        <Text style={[styles.tituloSeccion, { color: colores.texto }]}>
           ★ Mis lugares favoritos ({favoritos.length})
         </Text>
         {favoritos.length === 0 ? (
-          <Text style={styles.textoSecundario}>
+          <Text
+            style={[styles.textoSecundario, { color: colores.textoSecundario }]}
+          >
             Tocá la estrella ☆ en el detalle de cualquier lugar para guardarlo
             acá.
           </Text>
@@ -131,13 +142,30 @@ export default function PantallaPerfilYFavoritos() {
             const lug = lugares.find((l) => l.id === fav.lugarId);
             if (!lug) return null;
             return (
-              <View key={fav.id} style={styles.filaFavorito}>
+              <View
+                key={fav.id}
+                style={[
+                  styles.filaFavorito,
+                  { borderBottomColor: colores.borde },
+                ]}
+              >
                 <Pressable
                   style={{ flex: 1 }}
                   onPress={() => router.push(`/lugares/${lug.id}`)}
                 >
-                  <Text style={styles.nombreFavorito}>{lug.nombre}</Text>
-                  <Text style={styles.direccionFavorito}>{lug.direccion}</Text>
+                  <Text
+                    style={[styles.nombreFavorito, { color: colores.primario }]}
+                  >
+                    {lug.nombre}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.direccionFavorito,
+                      { color: colores.textoSecundario },
+                    ]}
+                  >
+                    {lug.direccion}
+                  </Text>
                 </Pressable>
                 <Pressable
                   style={styles.botonQuitarFav}
@@ -152,26 +180,54 @@ export default function PantallaPerfilYFavoritos() {
       </View>
 
       {/* 2. Sección Cuenta y Reingreso Rápido (SecureStore + Biometría) */}
-      <View style={styles.bloque}>
-        <Text style={styles.tituloSeccion}>👤 Mi Cuenta (Sincronización)</Text>
+      <View
+        style={[
+          styles.bloque,
+          { backgroundColor: colores.tarjeta, borderColor: colores.borde },
+        ]}
+      >
+        <Text style={[styles.tituloSeccion, { color: colores.texto }]}>
+          👤 Mi Cuenta (Sincronización)
+        </Text>
         {!usuario ? (
           <View>
-            <Text style={styles.textoSecundario}>
+            <Text
+              style={[
+                styles.textoSecundario,
+                { color: colores.textoSecundario },
+              ]}
+            >
               No necesitás cuenta para usar el mapa. Iniciá sesión solo si
               querés respaldar tus favoritos y recorrido para otro teléfono o el
               año que viene.
             </Text>
             <TextInput
-              style={styles.input}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colores.inputFondo,
+                  borderColor: colores.borde,
+                  color: colores.texto,
+                },
+              ]}
               placeholder="Correo electrónico"
+              placeholderTextColor={colores.textoSecundario}
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
               keyboardType="email-address"
             />
             <TextInput
-              style={styles.input}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colores.inputFondo,
+                  borderColor: colores.borde,
+                  color: colores.texto,
+                },
+              ]}
               placeholder="Contraseña"
+              placeholderTextColor={colores.textoSecundario}
               value={contrasena}
               onChangeText={setContrasena}
               secureTextEntry
@@ -182,7 +238,12 @@ export default function PantallaPerfilYFavoritos() {
           </View>
         ) : bloqueadoBiometria ? (
           <View style={styles.cajaBiometria}>
-            <Text style={styles.textoSecundario}>
+            <Text
+              style={[
+                styles.textoSecundario,
+                { color: colores.textoSecundario },
+              ]}
+            >
               Sesión guardada de {usuario.nombre} ({usuario.email}).
             </Text>
             <Pressable
@@ -207,8 +268,17 @@ export default function PantallaPerfilYFavoritos() {
           </View>
         ) : (
           <View>
-            <Text style={styles.nombreUsuario}>{usuario.nombre}</Text>
-            <Text style={styles.textoSecundario}>{usuario.email}</Text>
+            <Text style={[styles.nombreUsuario, { color: colores.texto }]}>
+              {usuario.nombre}
+            </Text>
+            <Text
+              style={[
+                styles.textoSecundario,
+                { color: colores.textoSecundario },
+              ]}
+            >
+              {usuario.email}
+            </Text>
             <Text style={styles.badgeSeguridad}>
               🔒 Token Bearer activo en expo-secure-store
             </Text>
@@ -223,13 +293,24 @@ export default function PantallaPerfilYFavoritos() {
       </View>
 
       {/* 3. Preferencias en expo-sqlite/kv-store */}
-      <View style={styles.bloque}>
-        <Text style={styles.tituloSeccion}>⚙️ Preferencias (kv-store)</Text>
+      <View
+        style={[
+          styles.bloque,
+          { backgroundColor: colores.tarjeta, borderColor: colores.borde },
+        ]}
+      >
+        <Text style={[styles.tituloSeccion, { color: colores.texto }]}>
+          ⚙️ Preferencias (kv-store)
+        </Text>
 
         <View style={styles.filaSwitch}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.etiquetaPref}>Avisar lugares cercanos</Text>
-            <Text style={styles.subtextoPref}>
+            <Text style={[styles.etiquetaPref, { color: colores.texto }]}>
+              Avisar lugares cercanos
+            </Text>
+            <Text
+              style={[styles.subtextoPref, { color: colores.textoSecundario }]}
+            >
               Máximo 1 aviso por lugar y por día
             </Text>
           </View>
@@ -241,19 +322,26 @@ export default function PantallaPerfilYFavoritos() {
           />
         </View>
 
-        <Text style={styles.etiquetaPref}>Radio de aviso de proximidad</Text>
+        <Text style={[styles.etiquetaPref, { color: colores.texto }]}>
+          Radio de aviso de proximidad
+        </Text>
         <View style={styles.filaOpciones}>
           {RADIOS_DISPONIBLES.map((radio) => {
             const activo = preferencias.radioAvisoMetros === radio;
             return (
               <Pressable
                 key={radio}
-                style={[styles.chipOpcion, activo && styles.chipOpcionActivo]}
+                style={[
+                  styles.chipOpcion,
+                  { backgroundColor: esOscuro ? "#0F172A" : "#E5E8EC" },
+                  activo && styles.chipOpcionActivo,
+                ]}
                 onPress={() => cambiarPreferencia({ radioAvisoMetros: radio })}
               >
                 <Text
                   style={[
                     styles.textoChipOpcion,
+                    { color: colores.texto },
                     activo && styles.textoChipOpcionActivo,
                   ]}
                 >
@@ -264,19 +352,26 @@ export default function PantallaPerfilYFavoritos() {
           })}
         </View>
 
-        <Text style={styles.etiquetaPref}>Tema de apariencia</Text>
+        <Text style={[styles.etiquetaPref, { color: colores.texto }]}>
+          Tema de apariencia ({esOscuro ? "Modo Oscuro activo" : "Modo Claro activo"})
+        </Text>
         <View style={styles.filaOpciones}>
           {TEMAS_DISPONIBLES.map((tema) => {
             const activo = preferencias.tema === tema;
             return (
               <Pressable
                 key={tema}
-                style={[styles.chipOpcion, activo && styles.chipOpcionActivo]}
+                style={[
+                  styles.chipOpcion,
+                  { backgroundColor: esOscuro ? "#0F172A" : "#E5E8EC" },
+                  activo && styles.chipOpcionActivo,
+                ]}
                 onPress={() => cambiarPreferencia({ tema })}
               >
                 <Text
                   style={[
                     styles.textoChipOpcion,
+                    { color: colores.texto },
                     activo && styles.textoChipOpcionActivo,
                   ]}
                 >

@@ -1,7 +1,7 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import * as Location from "expo-location";
 import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -24,9 +24,17 @@ import {
   obtenerLugares,
 } from "../../servicios/lugares";
 import { verificarYNotificarProximidad } from "../../servicios/notificaciones";
+import { useTema } from "../../servicios/tema";
 import { Categoria, Coordenadas, Lugar, OrigenDatos } from "../../tipos";
 
+// Punto de demostración en Costanera de Colón para probar cercanía si el usuario está en otra ciudad
+const UBICACION_DEMO_COLON: Coordenadas = {
+  latitud: -32.2165,
+  longitud: -58.1362,
+};
+
 export default function PantallaMapaYLugares() {
+  const { esOscuro, colores } = useTema();
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [lugares, setLugares] = useState<Lugar[]>([]);
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<
@@ -36,9 +44,9 @@ export default function PantallaMapaYLugares() {
   const [ordenarPorDistancia, setOrdenarPorDistancia] = useState(true);
   const [mostrarMapa, setMostrarMapa] = useState(true);
   const [interactuandoMapa, setInteractuandoMapa] = useState(false);
-  const [ubicacionUsuario, setUbicacionUsuario] = useState<Coordenadas | null>(
-    null,
-  );
+  const [ubicacionGpsReal, setUbicacionGpsReal] =
+    useState<Coordenadas | null>(null);
+  const [simularEnColon, setSimularEnColon] = useState(false);
   const [permisoUbicacionDenegado, setPermisoUbicacionDenegado] =
     useState(false);
   const [cargando, setCargando] = useState(true);
@@ -49,11 +57,38 @@ export default function PantallaMapaYLugares() {
     null,
   );
 
+  const ubicacionUsuario: Coordenadas | null = simularEnColon
+    ? UBICACION_DEMO_COLON
+    : ubicacionGpsReal;
+
+  const solicitarUbicacionGps = useCallback(async (): Promise<Coordenadas | null> => {
+    try {
+      const permiso = await Location.requestForegroundPermissionsAsync();
+      if (permiso.status !== "granted") {
+        setPermisoUbicacionDenegado(true);
+        return null;
+      }
+      setPermisoUbicacionDenegado(false);
+      const posicion = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const coords: Coordenadas = {
+        latitud: posicion.coords.latitude,
+        longitud: posicion.coords.longitude,
+      };
+      setUbicacionGpsReal(coords);
+      setSimularEnColon(false);
+      return coords;
+    } catch {
+      setPermisoUbicacionDenegado(true);
+      return null;
+    }
+  }, []);
+
   // Monitorear en tiempo real el momento exacto de conexión y desconexión con la API
   useEffect(() => {
     const cancelarMonitoreo = monitorearConexionApi((conectado) => {
       setApiConectadaEnVivo((estadoPrevio) => {
-        // Si acaba de reconectarse la API, refrescamos automáticamente categorías y lugares desde el servidor
         if (conectado && estadoPrevio === false) {
           obtenerCategorias()
             .then((res) => setCategorias(res.datos))
@@ -66,11 +101,13 @@ export default function PantallaMapaYLugares() {
     return cancelarMonitoreo;
   }, []);
 
-  // 1. Cargar categorías y pedir ubicación (si el usuario la niega, la app sigue funcionando)
+  // 1. Cargar categorías y suscribirse en tiempo real al GPS del teléfono
   useEffect(() => {
     obtenerCategorias()
       .then((res) => setCategorias(res.datos))
       .catch(() => {});
+
+    let suscripcionGps: Location.LocationSubscription | null = null;
 
     (async () => {
       try {
@@ -79,17 +116,35 @@ export default function PantallaMapaYLugares() {
           setPermisoUbicacionDenegado(true);
           return;
         }
+        setPermisoUbicacionDenegado(false);
         const posicion = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        setUbicacionUsuario({
+        setUbicacionGpsReal({
           latitud: posicion.coords.latitude,
           longitud: posicion.coords.longitude,
         });
+
+        suscripcionGps = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            distanceInterval: 10,
+          },
+          (nuevaPos) => {
+            setUbicacionGpsReal({
+              latitud: nuevaPos.coords.latitude,
+              longitud: nuevaPos.coords.longitude,
+            });
+          },
+        );
       } catch {
         setPermisoUbicacionDenegado(true);
       }
     })();
+
+    return () => {
+      suscripcionGps?.remove();
+    };
   }, []);
 
   // 2. Cargar lugares según filtros
@@ -110,7 +165,6 @@ export default function PantallaMapaYLugares() {
         setOrigenDatos(respuesta.origen ?? "api");
         setError(null);
 
-        // Verificar si hay algún lugar dentro del radio para avisar (máx 1 vez por lugar y por día)
         if (ubicacionUsuario) {
           for (const lug of respuesta.datos) {
             const dist = calcularDistanciaMetros(
@@ -144,7 +198,6 @@ export default function PantallaMapaYLugares() {
     recargaTick,
   ]);
 
-  // Lista "Cerca tuyo" ordenada por distancia (boceto página 3 del PDF)
   const lugaresCerca = useMemo(() => {
     if (!ubicacionUsuario) {
       return lugares.slice(0, 3);
@@ -158,7 +211,6 @@ export default function PantallaMapaYLugares() {
       .slice(0, 3);
   }, [lugares, ubicacionUsuario]);
 
-  // Estado efectivo combinando el monitoreo en vivo de la API con el origen de los datos
   const origenEfectivo: OrigenDatos =
     apiConectadaEnVivo === true
       ? "api"
@@ -187,40 +239,97 @@ export default function PantallaMapaYLugares() {
   }[origenEfectivo];
 
   return (
-    <View style={styles.contenedor}>
-      {/* Indicador en tiempo real de conexión/desconexión con la API (tocable para verificar al instante) */}
-      <Pressable
-        style={[styles.badgeEstadoApi, { backgroundColor: estadoApi.fondo }]}
-        onPress={() => {
-          void verificarSaludApi().then((ok) => {
-            if (ok) {
-              setRecargaTick((t) => t + 1);
+    <View style={[styles.contenedor, { backgroundColor: colores.fondo }]}>
+      {/* Fila de indicadores en tiempo real: Conexión API + Estado GPS */}
+      <View style={styles.filaBadgesEstado}>
+        <Pressable
+          style={[styles.badgeEstadoApi, { backgroundColor: estadoApi.fondo }]}
+          onPress={() => {
+            void verificarSaludApi().then((ok) => {
+              if (ok) {
+                setRecargaTick((t) => t + 1);
+              }
+            });
+          }}
+        >
+          <View
+            style={[
+              styles.puntoEstadoApi,
+              { backgroundColor: estadoApi.color },
+            ]}
+          />
+          <Text style={[styles.textoEstadoApi, { color: estadoApi.color }]}>
+            {estadoApi.texto}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={[
+            styles.badgeGps,
+            simularEnColon
+              ? { backgroundColor: "#EDE9FE", borderColor: "#C4B5FD" }
+              : ubicacionGpsReal
+                ? { backgroundColor: "#DBEAFE", borderColor: "#93C5FD" }
+                : { backgroundColor: "#FEF3C7", borderColor: "#FCD34D" },
+          ]}
+          onPress={() => {
+            if (!ubicacionGpsReal && !simularEnColon) {
+              void solicitarUbicacionGps();
+            } else {
+              setSimularEnColon((prev) => !prev);
             }
-          });
-        }}
-      >
-        <View
-          style={[styles.puntoEstadoApi, { backgroundColor: estadoApi.color }]}
-        />
-        <Text style={[styles.textoEstadoApi, { color: estadoApi.color }]}>
-          {estadoApi.texto}
-        </Text>
-      </Pressable>
+          }}
+        >
+          <Ionicons
+            name={simularEnColon ? "sparkles" : "navigate"}
+            size={12}
+            color={simularEnColon ? "#6D28D9" : "#1D4ED8"}
+          />
+          <Text
+            style={[
+              styles.textoBadgeGps,
+              { color: simularEnColon ? "#6D28D9" : "#1E40AF" },
+            ]}
+          >
+            {simularEnColon
+              ? "GPS simulado en Colón (tocar para GPS real)"
+              : ubicacionGpsReal
+                ? "GPS activo (tocar para simular en Colón)"
+                : "Activar mi GPS"}
+          </Text>
+        </Pressable>
+      </View>
 
       {/* Buscador y botón para mostrar/ocultar mapa */}
       <View style={styles.filaSuperior}>
-        <View style={styles.cajaBuscador}>
-          <Ionicons name="search-outline" size={20} color="#5D6D7E" />
+        <View
+          style={[
+            styles.cajaBuscador,
+            {
+              backgroundColor: colores.tarjeta,
+              borderColor: colores.borde,
+            },
+          ]}
+        >
+          <Ionicons
+            name="search-outline"
+            size={20}
+            color={colores.textoSecundario}
+          />
           <TextInput
-            style={styles.buscador}
+            style={[styles.buscador, { color: colores.texto }]}
             placeholder="Buscar lugar en Colón (ej: Molino, termas)..."
-            placeholderTextColor="#7F8C8D"
+            placeholderTextColor={colores.textoSecundario}
             value={busqueda}
             onChangeText={setBusqueda}
           />
           {busqueda.length > 0 && (
             <Pressable onPress={() => setBusqueda("")}>
-              <Ionicons name="close-circle" size={20} color="#7F8C8D" />
+              <Ionicons
+                name="close-circle"
+                size={20}
+                color={colores.textoSecundario}
+              />
             </Pressable>
           )}
         </View>
@@ -243,6 +352,7 @@ export default function PantallaMapaYLugares() {
           <Pressable
             style={[
               styles.chipCategoria,
+              { backgroundColor: esOscuro ? "#1E293B" : "#E5E8EC" },
               !categoriaSeleccionada && styles.chipActivo,
             ]}
             onPress={() => setCategoriaSeleccionada(undefined)}
@@ -250,6 +360,7 @@ export default function PantallaMapaYLugares() {
             <Text
               style={[
                 styles.textoChip,
+                { color: colores.texto },
                 !categoriaSeleccionada && styles.textoChipActivo,
               ]}
             >
@@ -264,12 +375,17 @@ export default function PantallaMapaYLugares() {
                 key={cat.id}
                 style={[
                   styles.chipCategoria,
+                  { backgroundColor: esOscuro ? "#1E293B" : "#E5E8EC" },
                   activo && { backgroundColor: cat.color },
                 ]}
                 onPress={() => setCategoriaSeleccionada(cat.id)}
               >
                 <Text
-                  style={[styles.textoChip, activo && styles.textoChipActivo]}
+                  style={[
+                    styles.textoChip,
+                    { color: colores.texto },
+                    activo && styles.textoChipActivo,
+                  ]}
                 >
                   {cat.nombre}
                 </Text>
@@ -282,7 +398,7 @@ export default function PantallaMapaYLugares() {
       {cargando ? (
         <ActivityIndicator
           size="large"
-          color="#1B4F72"
+          color={colores.primario}
           style={styles.centrado}
         />
       ) : error ? (
@@ -308,10 +424,11 @@ export default function PantallaMapaYLugares() {
                   ubicacionUsuario={ubicacionUsuario}
                   alSeleccionarLugar={(id) => router.push(`/lugares/${id}`)}
                   alInteractuarMapa={setInteractuandoMapa}
+                  alSolicitarUbicacionGps={solicitarUbicacionGps}
                 />
               )}
 
-              {permisoUbicacionDenegado && (
+              {permisoUbicacionDenegado && !simularEnColon && (
                 <View style={styles.avisoSinUbicacion}>
                   <Ionicons
                     name="location-outline"
@@ -319,17 +436,34 @@ export default function PantallaMapaYLugares() {
                     color="#7D6608"
                   />
                   <Text style={styles.textoAvisoUbicacion}>
-                    Ubicación desactivada: podés ver el mapa y el catálogo
-                    completo igual.
+                    Ubicación desactivada: activá el GPS o usá la simulación en
+                    Colón para ordenar por cercanía.
                   </Text>
+                  <Pressable
+                    style={styles.botonReintentarUbicacion}
+                    onPress={() => void solicitarUbicacionGps()}
+                  >
+                    <Ionicons name="locate" size={14} color="#FFFFFF" />
+                    <Text style={styles.textoBotonReintentar}>Activar GPS</Text>
+                  </Pressable>
                 </View>
               )}
 
               {/* Bloque "Cerca tuyo" del boceto de la página 3 */}
               {lugaresCerca.length > 0 && (
-                <View style={styles.bloqueCerca}>
+                <View
+                  style={[
+                    styles.bloqueCerca,
+                    {
+                      backgroundColor: colores.tarjeta,
+                      borderColor: colores.borde,
+                    },
+                  ]}
+                >
                   <View style={styles.encabezadoCerca}>
-                    <Text style={styles.tituloSeccion}>
+                    <Text
+                      style={[styles.tituloSeccion, { color: colores.texto }]}
+                    >
                       {ubicacionUsuario ? "Cerca tuyo" : "Destacados en Colón"}
                     </Text>
                     {ubicacionUsuario && (
@@ -338,7 +472,12 @@ export default function PantallaMapaYLugares() {
                           setOrdenarPorDistancia((prev) => !prev)
                         }
                       >
-                        <Text style={styles.linkOrden}>
+                        <Text
+                          style={[
+                            styles.linkOrden,
+                            { color: colores.primario },
+                          ]}
+                        >
                           {ordenarPorDistancia
                             ? "Ordenado por cercanía"
                             : "Ordenar por cercanía"}
@@ -359,26 +498,43 @@ export default function PantallaMapaYLugares() {
                     return (
                       <Pressable
                         key={`cerca-${lug.id}`}
-                        style={styles.itemCerca}
+                        style={[
+                          styles.itemCerca,
+                          { borderBottomColor: colores.borde },
+                        ]}
                         onPress={() => router.push(`/lugares/${lug.id}`)}
                       >
-                        <Text style={styles.nombreItemCerca}>
+                        <Text
+                          style={[
+                            styles.nombreItemCerca,
+                            { color: colores.texto },
+                          ]}
+                        >
                           • {lug.nombre}
                         </Text>
-                        <Text style={styles.distanciaItemCerca}>{dist}</Text>
+                        <Text
+                          style={[
+                            styles.distanciaItemCerca,
+                            { color: colores.primario },
+                          ]}
+                        >
+                          {dist}
+                        </Text>
                       </Pressable>
                     );
                   })}
                 </View>
               )}
 
-              <Text style={styles.tituloSeccion}>
+              <Text style={[styles.tituloSeccion, { color: colores.texto }]}>
                 Todos los lugares ({lugares.length})
               </Text>
             </View>
           }
           ListEmptyComponent={
-            <Text style={styles.textoVacio}>
+            <Text
+              style={[styles.textoVacio, { color: colores.textoSecundario }]}
+            >
               No se encontraron lugares con ese filtro.
             </Text>
           }
@@ -392,7 +548,13 @@ export default function PantallaMapaYLugares() {
 
             return (
               <Pressable
-                style={styles.tarjeta}
+                style={[
+                  styles.tarjeta,
+                  {
+                    backgroundColor: colores.tarjeta,
+                    borderColor: colores.borde,
+                  },
+                ]}
                 onPress={() => router.push(`/lugares/${item.id}`)}
               >
                 <View style={styles.filaEncabezadoTarjeta}>
@@ -409,17 +571,38 @@ export default function PantallaMapaYLugares() {
                     </View>
                   )}
                   {distancia && (
-                    <Text style={styles.distanciaTarjeta}>{distancia}</Text>
+                    <Text
+                      style={[
+                        styles.distanciaTarjeta,
+                        { color: colores.primario },
+                      ]}
+                    >
+                      {distancia}
+                    </Text>
                   )}
                 </View>
 
-                <Text style={styles.tituloLugar}>{item.nombre}</Text>
-                <Text style={styles.descripcionLugar}>
+                <Text style={[styles.tituloLugar, { color: colores.texto }]}>
+                  {item.nombre}
+                </Text>
+                <Text
+                  style={[
+                    styles.descripcionLugar,
+                    { color: colores.textoSecundario },
+                  ]}
+                >
                   {item.descripcionCorta}
                 </Text>
 
                 <View style={styles.filaPieTarjeta}>
-                  <Text style={styles.direccionLugar}>📍 {item.direccion}</Text>
+                  <Text
+                    style={[
+                      styles.direccionLugar,
+                      { color: colores.textoSecundario },
+                    ]}
+                  >
+                    📍 {item.direccion}
+                  </Text>
                   {item.audioguia && (
                     <Text style={styles.badgeAudioguia}>🎧 Audioguía</Text>
                   )}
@@ -438,7 +621,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F4F6F8",
     paddingHorizontal: 14,
-    paddingTop: 12,
+    paddingTop: 10,
+  },
+  filaBadgesEstado: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
   },
   filaSuperior: {
     flexDirection: "row",
@@ -449,12 +639,10 @@ const styles = StyleSheet.create({
   badgeEstadoApi: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
-    gap: 7,
+    gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 20,
-    marginBottom: 10,
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.06)",
   },
@@ -464,7 +652,20 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   textoEstadoApi: {
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  badgeGps: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  textoBadgeGps: {
+    fontSize: 11,
     fontWeight: "700",
   },
   cajaBuscador: {
@@ -512,23 +713,6 @@ const styles = StyleSheet.create({
   },
   textoChipActivo: {
     color: "#FFFFFF",
-  },
-  avisoSinUbicacion: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FEF9E7",
-    borderColor: "#F7DC6F",
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 10,
-    gap: 8,
-  },
-  textoAvisoUbicacion: {
-    flex: 1,
-    fontSize: 13,
-    color: "#7D6608",
-    fontWeight: "600",
   },
   bloqueCerca: {
     backgroundColor: "#FFFFFF",
@@ -594,6 +778,38 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "700",
     fontSize: 15,
+  },
+  avisoSinUbicacion: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF9E7",
+    borderColor: "#F7DC6F",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+    gap: 8,
+  },
+  botonReintentarUbicacion: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginLeft: 8,
+    backgroundColor: "#1B4F72",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  textoBotonReintentar: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  textoAvisoUbicacion: {
+    flex: 1,
+    fontSize: 13,
+    color: "#7D6608",
+    fontWeight: "600",
   },
   textoVacio: {
     textAlign: "center",

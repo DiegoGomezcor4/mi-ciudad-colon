@@ -1,28 +1,31 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import { Tabs } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTema } from "../../servicios/tema";
 
 export default function LayoutPestanas() {
   const insets = useSafeAreaInsets();
+  const { colores } = useTema();
+  const paddingInferior = Math.max(insets.bottom, 8);
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: "#1B4F72",
-        tabBarInactiveTintColor: "#5D6D7E",
+        tabBarActiveTintColor: colores.primario,
+        tabBarInactiveTintColor: colores.textoSecundario,
         tabBarLabelStyle: {
           fontSize: 13,
           fontWeight: "700",
         },
         tabBarStyle: {
-          height: 60 + insets.bottom,
-          paddingBottom: insets.bottom + 6,
+          height: 60 + paddingInferior,
+          paddingBottom: paddingInferior + 4,
           paddingTop: 6,
-          backgroundColor: "#FFFFFF",
-          borderTopColor: "#DCE1E7",
+          backgroundColor: colores.tabBarra,
+          borderTopColor: colores.borde,
         },
         headerStyle: {
-          backgroundColor: "#1B4F72",
+          backgroundColor: colores.encabezado,
         },
         headerTintColor: "#FFFFFF",
         headerTitleStyle: {

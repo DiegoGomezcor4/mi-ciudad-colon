@@ -10,6 +10,7 @@ import * as Location from "expo-location";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { Magnetometer } from "expo-sensors";
 import { useEffect, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
@@ -37,6 +38,7 @@ import {
   cambiarEstadoFavorito,
   consultarSiEsFavorito,
 } from "../../servicios/usuario";
+import { useTema } from "../../servicios/tema";
 import { Categoria, Coordenadas, Horario, Lugar } from "../../tipos";
 
 function calcularEstadoHorario(horarios: Horario[]): {
@@ -91,6 +93,8 @@ function formatearPrecio(precio: number | null): string {
 const NOMBRES_DIAS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 export default function PantallaDetalleLugar() {
+  const { colores } = useTema();
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [lugar, setLugar] = useState<Lugar | null>(null);
   const [categoria, setCategoria] = useState<Categoria | null>(null);
@@ -224,16 +228,16 @@ export default function PantallaDetalleLugar() {
 
   if (cargando) {
     return (
-      <View style={styles.centrado}>
+      <View style={[styles.centrado, { backgroundColor: colores.fondo }]}>
         <Stack.Screen options={{ title: "Cargando..." }} />
-        <ActivityIndicator size="large" color="#1B4F72" />
+        <ActivityIndicator size="large" color={colores.acento} />
       </View>
     );
   }
 
   if (error || !lugar) {
     return (
-      <View style={styles.centrado}>
+      <View style={[styles.centrado, { backgroundColor: colores.fondo }]}>
         <Stack.Screen options={{ title: "Detalle" }} />
         <Text style={styles.textoError}>
           {error || "No se encontró el lugar."}
@@ -261,7 +265,8 @@ export default function PantallaDetalleLugar() {
 
   return (
     <ScrollView
-      style={styles.contenedor}
+      style={[styles.contenedor, { backgroundColor: colores.fondo }]}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
       scrollEnabled={!interactuandoMapa}
     >
       <Stack.Screen
@@ -317,7 +322,9 @@ export default function PantallaDetalleLugar() {
           )}
         </View>
 
-        <Text style={styles.titulo}>{lugar.nombre}</Text>
+        <Text style={[styles.titulo, { color: colores.textoPrimario }]}>
+          {lugar.nombre}
+        </Text>
 
         {/* Estado horario abierto/cerrado */}
         <Text
@@ -331,7 +338,15 @@ export default function PantallaDetalleLugar() {
 
         {/* Distancia + Flecha con magnetómetro hacia el lugar (PDF pág. 2 y 4) */}
         {distanciaMetros !== null && (
-          <View style={styles.cajaBrujula}>
+          <View
+            style={[
+              styles.cajaBrujula,
+              {
+                backgroundColor: colores.superficieSecundaria,
+                borderColor: colores.borde,
+              },
+            ]}
+          >
             <View
               style={[
                 styles.circuloFlecha,
@@ -341,10 +356,15 @@ export default function PantallaDetalleLugar() {
               <Ionicons name="arrow-up" size={24} color="#FFFFFF" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.textoDistancia}>
+              <Text style={[styles.textoDistancia, { color: colores.acento }]}>
                 A {formatearDistancia(distanciaMetros)} de donde estás
               </Text>
-              <Text style={styles.subtextoBrujula}>
+              <Text
+                style={[
+                  styles.subtextoBrujula,
+                  { color: colores.textoSecundario },
+                ]}
+              >
                 La flecha apunta en dirección a {lugar.nombre}
               </Text>
             </View>
@@ -352,8 +372,10 @@ export default function PantallaDetalleLugar() {
         )}
 
         {/* Datos de contacto y precio */}
-        <Text style={styles.datoSecundario}>📍 {lugar.direccion}</Text>
-        <Text style={styles.datoSecundario}>
+        <Text style={[styles.datoSecundario, { color: colores.textoSecundario }]}>
+          📍 {lugar.direccion}
+        </Text>
+        <Text style={[styles.datoSecundario, { color: colores.textoSecundario }]}>
           🎟️ {formatearPrecio(lugar.precioEntrada)}
         </Text>
 
@@ -375,7 +397,7 @@ export default function PantallaDetalleLugar() {
           <Pressable
             onPress={() => Linking.openURL(`tel:${lugar.telefono}`).catch(() => {})}
           >
-            <Text style={[styles.datoSecundario, styles.enlace]}>
+            <Text style={[styles.datoSecundario, styles.enlace, { color: colores.acento }]}>
               📞 Llamar: {lugar.telefono}
             </Text>
           </Pressable>
@@ -385,21 +407,38 @@ export default function PantallaDetalleLugar() {
           <Pressable
             onPress={() => Linking.openURL(lugar.sitioWeb!).catch(() => {})}
           >
-            <Text style={[styles.datoSecundario, styles.enlace]}>
+            <Text style={[styles.datoSecundario, styles.enlace, { color: colores.acento }]}>
               🌐 Sitio web: {lugar.sitioWeb}
             </Text>
           </Pressable>
         )}
 
         {/* Descripción completa */}
-        <Text style={styles.descripcion}>{lugar.descripcion}</Text>
+        <Text style={[styles.descripcion, { color: colores.textoPrimario }]}>
+          {lugar.descripcion}
+        </Text>
 
         {/* Horarios por día de la semana */}
         {lugar.horarios.length > 0 && (
-          <View style={styles.cajaHorarios}>
-            <Text style={styles.subtituloSeccion}>Horarios de atención</Text>
+          <View
+            style={[
+              styles.cajaHorarios,
+              {
+                backgroundColor: colores.tarjeta,
+                borderColor: colores.borde,
+              },
+            ]}
+          >
+            <Text
+              style={[styles.subtituloSeccion, { color: colores.textoPrimario }]}
+            >
+              Horarios de atención
+            </Text>
             {lugar.horarios.map((h, idx) => (
-              <Text key={idx} style={styles.itemHorario}>
+              <Text
+                key={idx}
+                style={[styles.itemHorario, { color: colores.textoSecundario }]}
+              >
                 • {NOMBRES_DIAS[h.dia]}: {h.abre} a {h.cierra} hs
               </Text>
             ))}

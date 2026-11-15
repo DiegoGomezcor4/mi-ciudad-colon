@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { obtenerLugares } from "../../servicios/lugares";
+import { useTema } from "../../servicios/tema";
 import {
   obtenerMisVisitas,
   sincronizarVisitasPendientes,
@@ -19,6 +20,7 @@ import {
 import { Lugar, Visita } from "../../tipos";
 
 export default function PantallaRecorrido() {
+  const { esOscuro, colores } = useTema();
   const [visitas, setVisitas] = useState<Visita[]>([]);
   const [lugares, setLugares] = useState<Lugar[]>([]);
   const [sincronizando, setSincronizando] = useState(false);
@@ -40,7 +42,7 @@ export default function PantallaRecorrido() {
 
   useFocusEffect(
     useCallback(() => {
-      cargarRecorrido();
+      void cargarRecorrido();
     }, [cargarRecorrido]),
   );
 
@@ -69,15 +71,14 @@ export default function PantallaRecorrido() {
 
   if (cargando) {
     return (
-      <View style={styles.centrado}>
-        <ActivityIndicator size="large" color="#1B4F72" />
+      <View style={[styles.centrado, { backgroundColor: colores.fondo }]}>
+        <ActivityIndicator size="large" color={colores.primario} />
       </View>
     );
   }
 
   return (
-    <View style={styles.contenedor}>
-      {/* Botones superiores: Registrar nueva visita (QR/GPS/Manual) y Sincronizar cola offline */}
+    <View style={[styles.contenedor, { backgroundColor: colores.fondo }]}>
       <View style={styles.barraAcciones}>
         <Pressable
           style={styles.botonRegistrar}
@@ -109,7 +110,9 @@ export default function PantallaRecorrido() {
         data={visitas}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
-          <Text style={styles.textoVacio}>
+          <Text
+            style={[styles.textoVacio, { color: colores.textoSecundario }]}
+          >
             Todavía no registraste visitas en tu recorrido por Colón.
           </Text>
         }
@@ -128,7 +131,13 @@ export default function PantallaRecorrido() {
 
           return (
             <Pressable
-              style={styles.tarjeta}
+              style={[
+                styles.tarjeta,
+                {
+                  backgroundColor: colores.tarjeta,
+                  borderColor: colores.borde,
+                },
+              ]}
               onPress={() =>
                 lugar ? router.push(`/lugares/${lugar.id}`) : undefined
               }
@@ -151,10 +160,14 @@ export default function PantallaRecorrido() {
                 </Text>
               </View>
 
-              <Text style={styles.tituloLugar}>
+              <Text style={[styles.tituloLugar, { color: colores.texto }]}>
                 {lugar ? lugar.nombre : `Lugar ${item.lugarId}`}
               </Text>
-              <Text style={styles.fecha}>{fechaTexto}</Text>
+              <Text
+                style={[styles.fecha, { color: colores.textoSecundario }]}
+              >
+                {fechaTexto}
+              </Text>
 
               {item.fotoUri && (
                 <Image
@@ -164,7 +177,19 @@ export default function PantallaRecorrido() {
                 />
               )}
 
-              {item.nota && <Text style={styles.nota}>“{item.nota}”</Text>}
+              {item.nota && (
+                <Text
+                  style={[
+                    styles.nota,
+                    {
+                      backgroundColor: esOscuro ? "#0F172A" : "#F8F9FA",
+                      color: colores.texto,
+                    },
+                  ]}
+                >
+                  “{item.nota}”
+                </Text>
+              )}
             </Pressable>
           );
         }}
