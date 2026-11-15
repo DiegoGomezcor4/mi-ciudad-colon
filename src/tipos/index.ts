@@ -113,9 +113,12 @@ export interface MetaPaginacion {
   porPagina: number;
 }
 
+export type OrigenDatos = "api" | "cache" | "mock";
+
 export interface RespuestaExito<T> {
   datos: T;
   meta?: MetaPaginacion | null;
+  origen?: OrigenDatos;
 }
 
 export interface ErrorApi {

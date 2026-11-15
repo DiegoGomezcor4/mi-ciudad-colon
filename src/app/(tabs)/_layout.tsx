@@ -1,7 +1,10 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import { Tabs } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function LayoutPestanas() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={{
@@ -12,8 +15,8 @@ export default function LayoutPestanas() {
           fontWeight: "700",
         },
         tabBarStyle: {
-          height: 64,
-          paddingBottom: 8,
+          height: 60 + insets.bottom,
+          paddingBottom: insets.bottom + 6,
           paddingTop: 6,
           backgroundColor: "#FFFFFF",
           borderTopColor: "#DCE1E7",

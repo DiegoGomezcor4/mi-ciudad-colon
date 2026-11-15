@@ -64,7 +64,8 @@ export async function obtenerCategorias(): Promise<
   RespuestaExito<Categoria[]>
 > {
   try {
-    return await peticionApi<Categoria[]>("/categorias");
+    const respuesta = await peticionApi<Categoria[]>("/categorias");
+    return { ...respuesta, origen: "api" };
   } catch {
     return {
       datos: CATEGORIAS_MOCK,
@@ -73,6 +74,7 @@ export async function obtenerCategorias(): Promise<
         pagina: 1,
         porPagina: CATEGORIAS_MOCK.length,
       },
+      origen: "mock",
     };
   }
 }
@@ -106,7 +108,7 @@ export async function obtenerLugares(
     if (respuesta.datos.length > 0) {
       await guardarLugaresEnCache(respuesta.datos);
     }
-    return respuesta;
+    return { ...respuesta, origen: "api" };
   } catch {
     const cacheados = await obtenerLugaresDeCache();
     const base = cacheados.length > 0 ? cacheados : LUGARES_MOCK;
@@ -146,6 +148,7 @@ export async function obtenerLugares(
     return {
       datos: resultado,
       meta: { total: resultado.length, pagina: 1, porPagina: 20 },
+      origen: cacheados.length > 0 ? "cache" : "mock",
     };
   }
 }
@@ -163,7 +166,11 @@ export async function obtenerLugarPorId(
     if (!lugar) {
       throw new Error("No existe ese lugar.");
     }
-    return { datos: lugar, meta: null };
+    return {
+      datos: lugar,
+      meta: null,
+      origen: cacheados.length > 0 ? "cache" : "mock",
+    };
   }
 }
 
@@ -183,6 +190,10 @@ export async function obtenerLugarPorQr(
     if (!lugar) {
       throw new Error("El código QR escaneado no pertenece a Mi Ciudad Colón.");
     }
-    return { datos: lugar, meta: null };
+    return {
+      datos: lugar,
+      meta: null,
+      origen: cacheados.length > 0 ? "cache" : "mock",
+    };
   }
 }

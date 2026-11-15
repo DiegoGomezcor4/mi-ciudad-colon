@@ -20,7 +20,7 @@ import {
   obtenerLugares,
 } from "../../servicios/lugares";
 import { verificarYNotificarProximidad } from "../../servicios/notificaciones";
-import { Categoria, Coordenadas, Lugar } from "../../tipos";
+import { Categoria, Coordenadas, Lugar, OrigenDatos } from "../../tipos";
 
 export default function PantallaMapaYLugares() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -38,6 +38,7 @@ export default function PantallaMapaYLugares() {
     useState(false);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [origenDatos, setOrigenDatos] = useState<OrigenDatos>("api");
 
   // 1. Cargar categorías y pedir ubicación (si el usuario la niega, la app sigue funcionando)
   useEffect(() => {
@@ -79,6 +80,7 @@ export default function PantallaMapaYLugares() {
           ordenarPorDistancia && ubicacionUsuario ? "distancia" : "nombre",
       });
       setLugares(respuesta.datos);
+      setOrigenDatos(respuesta.origen ?? "api");
 
       // Verificar si hay algún lugar dentro del radio para avisar (máx 1 vez por lugar y por día)
       if (ubicacionUsuario) {
@@ -119,8 +121,38 @@ export default function PantallaMapaYLugares() {
       .slice(0, 3);
   }, [lugares, ubicacionUsuario]);
 
+  const estadoApi = {
+    api: {
+      color: "#1E8449",
+      fondo: "#EAFAF1",
+      texto: "Conectado a la API",
+    },
+    cache: {
+      color: "#B9770E",
+      fondo: "#FEF5E7",
+      texto: "Sin conexión · datos guardados",
+    },
+    mock: {
+      color: "#C0392B",
+      fondo: "#FDEDEC",
+      texto: "Sin conexión · datos de ejemplo",
+    },
+  }[origenDatos];
+
   return (
     <View style={styles.contenedor}>
+      {/* Indicador de conexión con la API */}
+      <View
+        style={[styles.badgeEstadoApi, { backgroundColor: estadoApi.fondo }]}
+      >
+        <View
+          style={[styles.puntoEstadoApi, { backgroundColor: estadoApi.color }]}
+        />
+        <Text style={[styles.textoEstadoApi, { color: estadoApi.color }]}>
+          {estadoApi.texto}
+        </Text>
+      </View>
+
       {/* Buscador y botón para mostrar/ocultar mapa */}
       <View style={styles.filaSuperior}>
         <View style={styles.cajaBuscador}>
@@ -354,6 +386,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     marginBottom: 10,
+  },
+  badgeEstadoApi: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.06)",
+  },
+  puntoEstadoApi: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  textoEstadoApi: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   cajaBuscador: {
     flex: 1,

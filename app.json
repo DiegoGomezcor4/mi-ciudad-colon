@@ -93,8 +93,7 @@
         {
           "android": {
             "usesCleartextTraffic": true,
-            "enableProguardInReleaseBuilds": false,
-            "extraProguardRules": "-keep class androidx.work.impl.WorkDatabase { *; }"
+            "enableMinifyInReleaseBuilds": false
           }
         }
       ],

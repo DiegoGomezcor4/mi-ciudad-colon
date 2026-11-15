@@ -1,7 +1,7 @@
 import { RespuestaError, RespuestaExito } from "../tipos";
 
 export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL || "http://192.168.2.102:3000";
+  process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.8:3000";
 
 const TIMEOUT_MS = 3500;
 
