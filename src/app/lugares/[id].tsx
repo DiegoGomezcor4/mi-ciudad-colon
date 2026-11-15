@@ -25,6 +25,7 @@ import {
   descargarAudioguiaLocal,
   obtenerUriAudioguiaLocal,
 } from "../../servicios/archivos";
+import MapaLugares from "../../componentes/MapaLugares";
 import {
   calcularDistanciaMetros,
   calcularRumboGrados,
@@ -100,6 +101,7 @@ export default function PantallaDetalleLugar() {
   const [descargandoAudio, setDescargandoAudio] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [interactuandoMapa, setInteractuandoMapa] = useState(false);
 
   // Configurar expo-audio para permitir reproducción incluso con la pantalla apagada en el bolsillo (PDF pág. 3 y 5)
   const fuenteAudio =
@@ -258,7 +260,10 @@ export default function PantallaDetalleLugar() {
   const tiempoRestante = Math.max(0, duracionTotal - estadoAudio.currentTime);
 
   return (
-    <ScrollView style={styles.contenedor}>
+    <ScrollView
+      style={styles.contenedor}
+      scrollEnabled={!interactuandoMapa}
+    >
       <Stack.Screen
         options={{
           title: lugar.nombre,
@@ -351,6 +356,20 @@ export default function PantallaDetalleLugar() {
         <Text style={styles.datoSecundario}>
           🎟️ {formatearPrecio(lugar.precioEntrada)}
         </Text>
+
+        {/* Mapa interactivo de ubicación del lugar */}
+        <View style={{ marginTop: 10 }}>
+          <MapaLugares
+            lugares={[lugar]}
+            ubicacionUsuario={ubicacion}
+            alSeleccionarLugar={() => abrirComoLlegar()}
+            altura={190}
+            zoomInicial={15}
+            centroInicial={lugar.coordenadas}
+            modoCompacto
+            alInteractuarMapa={setInteractuandoMapa}
+          />
+        </View>
 
         {lugar.telefono && (
           <Pressable

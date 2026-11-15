@@ -18,7 +18,7 @@ import {
 } from "../../servicios/eventos";
 import { obtenerLugarPorId } from "../../servicios/lugares";
 import { programarRecordatorioEvento } from "../../servicios/notificaciones";
-import { EstadoEvento, Evento, Lugar } from "../../tipos";
+import { Evento, Lugar } from "../../tipos";
 
 function calcularDuracionTexto(inicioIso: string, finIso: string | null): string {
   if (!finIso) return "Duración abierta";

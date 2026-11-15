@@ -14,6 +14,10 @@ import {
 } from "react-native";
 import MapaLugares from "../../componentes/MapaLugares";
 import {
+  monitorearConexionApi,
+  verificarSaludApi,
+} from "../../servicios/api";
+import {
   calcularDistanciaMetros,
   formatearDistancia,
   obtenerCategorias,
@@ -31,6 +35,7 @@ export default function PantallaMapaYLugares() {
   const [busqueda, setBusqueda] = useState("");
   const [ordenarPorDistancia, setOrdenarPorDistancia] = useState(true);
   const [mostrarMapa, setMostrarMapa] = useState(true);
+  const [interactuandoMapa, setInteractuandoMapa] = useState(false);
   const [ubicacionUsuario, setUbicacionUsuario] = useState<Coordenadas | null>(
     null,
   );
@@ -38,7 +43,28 @@ export default function PantallaMapaYLugares() {
     useState(false);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recargaTick, setRecargaTick] = useState(0);
   const [origenDatos, setOrigenDatos] = useState<OrigenDatos>("api");
+  const [apiConectadaEnVivo, setApiConectadaEnVivo] = useState<boolean | null>(
+    null,
+  );
+
+  // Monitorear en tiempo real el momento exacto de conexión y desconexión con la API
+  useEffect(() => {
+    const cancelarMonitoreo = monitorearConexionApi((conectado) => {
+      setApiConectadaEnVivo((estadoPrevio) => {
+        // Si acaba de reconectarse la API, refrescamos automáticamente categorías y lugares desde el servidor
+        if (conectado && estadoPrevio === false) {
+          obtenerCategorias()
+            .then((res) => setCategorias(res.datos))
+            .catch(() => {});
+          setRecargaTick((t) => t + 1);
+        }
+        return conectado;
+      });
+    });
+    return cancelarMonitoreo;
+  }, []);
 
   // 1. Cargar categorías y pedir ubicación (si el usuario la niega, la app sigue funcionando)
   useEffect(() => {
@@ -67,45 +93,56 @@ export default function PantallaMapaYLugares() {
   }, []);
 
   // 2. Cargar lugares según filtros
-  const cargarLugares = async () => {
-    try {
-      setCargando(true);
-      setError(null);
-      const respuesta = await obtenerLugares({
-        categoriaId: categoriaSeleccionada,
-        q: busqueda.trim() || undefined,
-        latitud: ubicacionUsuario?.latitud,
-        longitud: ubicacionUsuario?.longitud,
-        orden:
-          ordenarPorDistancia && ubicacionUsuario ? "distancia" : "nombre",
-      });
-      setLugares(respuesta.datos);
-      setOrigenDatos(respuesta.origen ?? "api");
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      try {
+        const respuesta = await obtenerLugares({
+          categoriaId: categoriaSeleccionada,
+          q: busqueda.trim() || undefined,
+          latitud: ubicacionUsuario?.latitud,
+          longitud: ubicacionUsuario?.longitud,
+          orden:
+            ordenarPorDistancia && ubicacionUsuario ? "distancia" : "nombre",
+        });
+        if (cancelado) return;
+        setLugares(respuesta.datos);
+        setOrigenDatos(respuesta.origen ?? "api");
+        setError(null);
 
-      // Verificar si hay algún lugar dentro del radio para avisar (máx 1 vez por lugar y por día)
-      if (ubicacionUsuario) {
-        for (const lug of respuesta.datos) {
-          const dist = calcularDistanciaMetros(
-            ubicacionUsuario,
-            lug.coordenadas,
-          );
-          verificarYNotificarProximidad(lug, dist);
+        // Verificar si hay algún lugar dentro del radio para avisar (máx 1 vez por lugar y por día)
+        if (ubicacionUsuario) {
+          for (const lug of respuesta.datos) {
+            const dist = calcularDistanciaMetros(
+              ubicacionUsuario,
+              lug.coordenadas,
+            );
+            verificarYNotificarProximidad(lug, dist);
+          }
+        }
+      } catch (err) {
+        if (cancelado) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudieron cargar los lugares.",
+        );
+      } finally {
+        if (!cancelado) {
+          setCargando(false);
         }
       }
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudieron cargar los lugares.",
-      );
-    } finally {
-      setCargando(false);
-    }
-  };
-
-  useEffect(() => {
-    cargarLugares();
-  }, [categoriaSeleccionada, busqueda, ubicacionUsuario, ordenarPorDistancia]);
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [
+    categoriaSeleccionada,
+    busqueda,
+    ubicacionUsuario,
+    ordenarPorDistancia,
+    recargaTick,
+  ]);
 
   // Lista "Cerca tuyo" ordenada por distancia (boceto página 3 del PDF)
   const lugaresCerca = useMemo(() => {
@@ -120,6 +157,16 @@ export default function PantallaMapaYLugares() {
       )
       .slice(0, 3);
   }, [lugares, ubicacionUsuario]);
+
+  // Estado efectivo combinando el monitoreo en vivo de la API con el origen de los datos
+  const origenEfectivo: OrigenDatos =
+    apiConectadaEnVivo === true
+      ? "api"
+      : apiConectadaEnVivo === false
+        ? origenDatos === "mock"
+          ? "mock"
+          : "cache"
+        : origenDatos;
 
   const estadoApi = {
     api: {
@@ -137,13 +184,20 @@ export default function PantallaMapaYLugares() {
       fondo: "#FDEDEC",
       texto: "Sin conexión · datos de ejemplo",
     },
-  }[origenDatos];
+  }[origenEfectivo];
 
   return (
     <View style={styles.contenedor}>
-      {/* Indicador de conexión con la API */}
-      <View
+      {/* Indicador en tiempo real de conexión/desconexión con la API (tocable para verificar al instante) */}
+      <Pressable
         style={[styles.badgeEstadoApi, { backgroundColor: estadoApi.fondo }]}
+        onPress={() => {
+          void verificarSaludApi().then((ok) => {
+            if (ok) {
+              setRecargaTick((t) => t + 1);
+            }
+          });
+        }}
       >
         <View
           style={[styles.puntoEstadoApi, { backgroundColor: estadoApi.color }]}
@@ -151,7 +205,7 @@ export default function PantallaMapaYLugares() {
         <Text style={[styles.textoEstadoApi, { color: estadoApi.color }]}>
           {estadoApi.texto}
         </Text>
-      </View>
+      </Pressable>
 
       {/* Buscador y botón para mostrar/ocultar mapa */}
       <View style={styles.filaSuperior}>
@@ -234,7 +288,10 @@ export default function PantallaMapaYLugares() {
       ) : error ? (
         <View style={styles.centrado}>
           <Text style={styles.textoError}>{error}</Text>
-          <Pressable style={styles.botonReintentar} onPress={cargarLugares}>
+          <Pressable
+            style={styles.botonReintentar}
+            onPress={() => setRecargaTick((t) => t + 1)}
+          >
             <Text style={styles.textoBoton}>Reintentar</Text>
           </Pressable>
         </View>
@@ -242,6 +299,7 @@ export default function PantallaMapaYLugares() {
         <FlatList
           data={lugares}
           keyExtractor={(item) => item.id}
+          scrollEnabled={!interactuandoMapa}
           ListHeaderComponent={
             <View>
               {mostrarMapa && (
@@ -249,6 +307,7 @@ export default function PantallaMapaYLugares() {
                   lugares={lugares}
                   ubicacionUsuario={ubicacionUsuario}
                   alSeleccionarLugar={(id) => router.push(`/lugares/${id}`)}
+                  alInteractuarMapa={setInteractuandoMapa}
                 />
               )}
 
