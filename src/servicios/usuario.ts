@@ -1,22 +1,94 @@
-import { USUARIO_MOCK } from "../mocks/usuario";
 import { Favorito, Preferencias, RespuestaExito, Usuario } from "../tipos";
-import { peticionApi } from "./api";
+import { esErrorDeConexionApi, peticionApi } from "./api";
 import {
   alternarFavoritoLocal,
   esLugarFavoritoLocal,
   listarFavoritosLocales,
+  sincronizarEspejoFavoritosLocal,
 } from "./baseDatos";
 import {
   guardarPreferenciasLocales,
+  marcarPreferenciasPendientesSync,
+  obtenerPreferenciasDeUsuarioLocal,
   obtenerPreferenciasLocales,
+  tienePreferenciasPendientesSync,
 } from "./preferencias";
 import {
   eliminarTokenSesion,
+  esTokenRemotoApi,
   guardarTokenSesion,
+  guardarUsuarioSesion,
   obtenerTokenSesion,
+  obtenerUsuarioConocidoPorEmail,
+  obtenerUsuarioSesion,
 } from "./seguridad";
 
-// Usa POST /auth/ingreso de la API de la cátedra (contract/api.ts: Sesion { token, usuario })
+async function resolverUsuarioOfflinePorEmail(
+  emailRaw: string,
+  preferenciasRespaldo: Preferencias,
+): Promise<Usuario> {
+  const email = emailRaw.trim().toLowerCase();
+  const idDeterministico =
+    email === "nuevo@demo.ar"
+      ? "usr-nuevo"
+      : email === "turismo@colon.demo.ar"
+        ? "usr-turismo"
+        : email === "lucia@mail.com"
+          ? "usr-201"
+          : `usr-${email}`;
+
+  const conocido = await obtenerUsuarioConocidoPorEmail(emailRaw);
+  const uid = conocido?.id || idDeterministico;
+  const prefsGuardadasUsuario = await obtenerPreferenciasDeUsuarioLocal(uid);
+
+  if (conocido) {
+    return {
+      ...conocido,
+      preferencias: prefsGuardadasUsuario || conocido.preferencias,
+    };
+  }
+
+  if (email === "nuevo@demo.ar") {
+    return {
+      id: "usr-nuevo",
+      nombre: "Turista Nuevo",
+      email: "nuevo@demo.ar",
+      avatarUrl: null,
+      creadoEn: "2026-11-01T10:00:00-03:00",
+      preferencias: prefsGuardadasUsuario || {
+        categoriasFavoritas: [],
+        avisarProximidad: true,
+        radioAvisoMetros: 250,
+        tema: "sistema",
+      },
+    };
+  }
+  if (email === "turismo@colon.demo.ar") {
+    return {
+      id: "usr-turismo",
+      nombre: "Dirección de Turismo",
+      email: "turismo@colon.demo.ar",
+      avatarUrl: null,
+      creadoEn: "2026-01-01T09:00:00-03:00",
+      preferencias: prefsGuardadasUsuario || {
+        categoriasFavoritas: [],
+        avisarProximidad: false,
+        radioAvisoMetros: 250,
+        tema: "claro",
+      },
+    };
+  }
+  return {
+    id: uid,
+    nombre: email === "lucia@mail.com" ? "Lucía Méndez" : email.split("@")[0],
+    email,
+    avatarUrl: null,
+    creadoEn: "2026-09-02T18:20:00-03:00",
+    preferencias: prefsGuardadasUsuario || preferenciasRespaldo,
+  };
+}
+
+// Usa POST /auth/ingreso de la API de la cátedra (y permite entrar con la caché local si la API está apagada)
 export async function iniciarSesionUsuario(
   email: string,
   contrasena: string,
@@ -29,38 +101,48 @@ export async function iniciarSesionUsuario(
         body: JSON.stringify({ email: email.trim(), contrasena }),
       },
     );
-    await guardarTokenSesion(respuesta.datos.token);
-    await guardarPreferenciasLocales(respuesta.datos.usuario.preferencias);
+    const uid = respuesta.datos.usuario.id;
+    let usuarioFinal = respuesta.datos.usuario;
 
-    // Sincronizar favoritos guardados localmente antes de iniciar sesión
-    const locales = await listarFavoritosLocales();
-    for (const fav of locales) {
-      peticionApi<Favorito>(
-        `/yo/favoritos/${fav.lugarId}`,
-        { method: "PUT" },
-        respuesta.datos.token,
-      ).catch(() => {});
+    // Si el usuario modificó sus preferencias en kv-store mientras estaba sin conexión, las conservamos y las subimos a la API
+    if (await tienePreferenciasPendientesSync(uid)) {
+      const prefsOffline = await obtenerPreferenciasDeUsuarioLocal(uid);
+      if (prefsOffline) {
+        usuarioFinal = { ...usuarioFinal, preferencias: prefsOffline };
+        peticionApi<Usuario>(
+          "/yo",
+          {
+            method: "PATCH",
+            body: JSON.stringify({ preferencias: prefsOffline }),
+          },
+          respuesta.datos.token,
+        )
+          .then(() => marcarPreferenciasPendientesSync(uid, false))
+          .catch(() => {});
+      }
     }
 
-    return respuesta.datos;
+    await guardarTokenSesion(respuesta.datos.token);
+    await guardarUsuarioSesion(usuarioFinal);
+    await guardarPreferenciasLocales(usuarioFinal.preferencias, uid);
+    return { usuario: usuarioFinal, token: respuesta.datos.token };
   } catch (err) {
-    const esFalloRed =
-      err instanceof TypeError ||
-      (err instanceof Error && err.name === "AbortError");
-    if (!esFalloRed) {
+    if (!esErrorDeConexionApi(err)) {
       throw err;
     }
 
-    const tokenSimulado = `jwt-colon-${Date.now()}`;
-    await guardarTokenSesion(tokenSimulado);
     const prefs = await obtenerPreferenciasLocales();
+    const usuarioOffline = await resolverUsuarioOfflinePorEmail(email, prefs);
+    const tokenOffline = `offline-sesion-${usuarioOffline.id}`;
+    await guardarTokenSesion(tokenOffline);
+    await guardarUsuarioSesion(usuarioOffline);
+    await guardarPreferenciasLocales(
+      usuarioOffline.preferencias,
+      usuarioOffline.id,
+    );
     return {
-      usuario: {
-        ...USUARIO_MOCK,
-        email: email.trim() || USUARIO_MOCK.email,
-        preferencias: prefs,
-      },
-      token: tokenSimulado,
+      usuario: usuarioOffline,
+      token: tokenOffline,
     };
   }
 }
@@ -83,7 +165,11 @@ export async function registrarNuevoUsuario(
     },
   );
   await guardarTokenSesion(respuesta.datos.token);
-  await guardarPreferenciasLocales(respuesta.datos.usuario.preferencias);
+  await guardarUsuarioSesion(respuesta.datos.usuario);
+  await guardarPreferenciasLocales(
+    respuesta.datos.usuario.preferencias,
+    respuesta.datos.usuario.id,
+  );
   return respuesta.datos;
 }
 
@@ -91,32 +177,80 @@ export async function cerrarSesionUsuario(): Promise<void> {
   await eliminarTokenSesion();
 }
 
-// Usa GET /yo de la API de la cátedra
+// Usa GET /yo de la API de la cátedra (y mantiene la sesión y las preferencias kv-store si el teléfono queda sin señal)
 export async function obtenerPerfilActual(): Promise<Usuario | null> {
   const token = await obtenerTokenSesion();
   if (!token) {
     return null;
   }
-  const prefs = await obtenerPreferenciasLocales();
-  try {
-    const res = await peticionApi<Usuario>("/yo", {}, token);
-    await guardarPreferenciasLocales(res.datos.preferencias);
-    return res.datos;
-  } catch {
-    return {
-      ...USUARIO_MOCK,
-      preferencias: prefs,
-    };
+  const usuarioLocal = await obtenerUsuarioSesion();
+
+  if (esTokenRemotoApi(token)) {
+    try {
+      const res = await peticionApi<Usuario>("/yo", {}, token);
+      const uid = res.datos.id;
+
+      // Si hay cambios de preferencias hechos offline, tienen prioridad sobre el servidor
+      if (await tienePreferenciasPendientesSync(uid)) {
+        const prefsOffline = await obtenerPreferenciasDeUsuarioLocal(uid);
+        if (prefsOffline) {
+          const actualizado = await peticionApi<Usuario>(
+            "/yo",
+            {
+              method: "PATCH",
+              body: JSON.stringify({ preferencias: prefsOffline }),
+            },
+            token,
+          );
+          await marcarPreferenciasPendientesSync(uid, false);
+          await guardarUsuarioSesion(actualizado.datos);
+          await guardarPreferenciasLocales(
+            actualizado.datos.preferencias,
+            uid,
+          );
+          return actualizado.datos;
+        }
+      }
+
+      await guardarUsuarioSesion(res.datos);
+      await guardarPreferenciasLocales(res.datos.preferencias, uid);
+      return res.datos;
+    } catch {
+      if (usuarioLocal) {
+        const prefsUser = await obtenerPreferenciasDeUsuarioLocal(
+          usuarioLocal.id,
+        );
+        if (prefsUser) {
+          return { ...usuarioLocal, preferencias: prefsUser };
+        }
+      }
+      return usuarioLocal;
+    }
   }
+
+  if (usuarioLocal) {
+    const prefsUser = await obtenerPreferenciasDeUsuarioLocal(usuarioLocal.id);
+    if (prefsUser) {
+      return { ...usuarioLocal, preferencias: prefsUser };
+    }
+  }
+  return usuarioLocal;
 }
 
-// Usa PATCH /yo con { preferencias } según la especificación de la cátedra (R18)
+// Guarda siempre en expo-sqlite/kv-store (con o sin conexión) y sincroniza con PATCH /yo cuando hay conexión
 export async function actualizarPreferenciasUsuario(
   preferencias: Preferencias,
 ): Promise<Preferencias> {
-  await guardarPreferenciasLocales(preferencias);
+  const usuarioActual = await obtenerUsuarioSesion();
+  const uid = usuarioActual?.id;
+
+  await guardarPreferenciasLocales(preferencias, uid);
+  if (usuarioActual) {
+    await guardarUsuarioSesion({ ...usuarioActual, preferencias });
+  }
+
   const token = await obtenerTokenSesion();
-  if (token) {
+  if (esTokenRemotoApi(token) && uid) {
     try {
       const res = await peticionApi<Usuario>(
         "/yo",
@@ -126,32 +260,42 @@ export async function actualizarPreferenciasUsuario(
         },
         token,
       );
+      await marcarPreferenciasPendientesSync(uid, false);
+      await guardarUsuarioSesion(res.datos);
+      await guardarPreferenciasLocales(res.datos.preferencias, uid);
       return res.datos.preferencias;
-    } catch {}
+    } catch {
+      await marcarPreferenciasPendientesSync(uid, true);
+    }
+  } else if (uid) {
+    await marcarPreferenciasPendientesSync(uid, true);
   }
   return preferencias;
 }
 
-// Usa GET /yo/favoritos si hay sesión activa, fusionando con SQLite local
+// Opción A: Sin cuenta iniciada, la lista de favoritos está vacía ("La cuenta es para guardar cosas")
 export async function obtenerMisFavoritos(): Promise<
   RespuestaExito<Favorito[]>
 > {
-  const locales = await listarFavoritosLocales();
   const token = await obtenerTokenSesion();
-  if (token && !token.startsWith("jwt-colon-")) {
+  if (!token) {
+    return {
+      datos: [],
+      meta: { total: 0, pagina: 1, porPagina: 50 },
+    };
+  }
+  const usuario = await obtenerUsuarioSesion();
+  const uid = usuario?.id || "usr-201";
+
+  if (esTokenRemotoApi(token)) {
     try {
-      const remotos = await peticionApi<Favorito[]>("/yo/favoritos", {}, token);
-      const lugaresRemotos = new Set(remotos.datos.map((f) => f.lugarId));
-      const soloLocales = locales.filter(
-        (f) => !lugaresRemotos.has(f.lugarId),
-      );
-      const combinados = [...remotos.datos, ...soloLocales];
-      return {
-        datos: combinados,
-        meta: { total: combinados.length, pagina: 1, porPagina: 50 },
-      };
+      const res = await peticionApi<Favorito[]>("/yo/favoritos", {}, token);
+      await sincronizarEspejoFavoritosLocal(res.datos, uid);
+      return res;
     } catch {}
   }
+
+  const locales = await listarFavoritosLocales(uid);
   return {
     datos: locales,
     meta: { total: locales.length, pagina: 1, porPagina: 50 },
@@ -159,23 +303,34 @@ export async function obtenerMisFavoritos(): Promise<
 }
 
 export async function consultarSiEsFavorito(lugarId: string): Promise<boolean> {
-  const esLocal = await esLugarFavoritoLocal(lugarId);
-  if (esLocal) return true;
   const token = await obtenerTokenSesion();
-  if (token && !token.startsWith("jwt-colon-")) {
+  if (!token) {
+    return false;
+  }
+  const usuario = await obtenerUsuarioSesion();
+  const uid = usuario?.id || "usr-201";
+
+  if (esTokenRemotoApi(token)) {
     try {
       const res = await peticionApi<Favorito[]>("/yo/favoritos", {}, token);
+      await sincronizarEspejoFavoritosLocal(res.datos, uid);
       return res.datos.some((f) => f.lugarId === lugarId);
     } catch {}
   }
-  return false;
+  return esLugarFavoritoLocal(lugarId, uid);
 }
 
-// Usa PUT /yo/favoritos/:lugarId y DELETE /yo/favoritos/:lugarId de la API de la cátedra
+// Exige sesión iniciada (código 401 NO_AUTENTICADO: "Tenés que ingresar con tu cuenta para hacer esto.")
 export async function cambiarEstadoFavorito(lugarId: string): Promise<boolean> {
-  const nuevoEstadoLocal = await alternarFavoritoLocal(lugarId);
   const token = await obtenerTokenSesion();
-  if (token) {
+  if (!token) {
+    throw new Error("Tenés que ingresar con tu cuenta para hacer esto.");
+  }
+  const usuario = await obtenerUsuarioSesion();
+  const uid = usuario?.id || "usr-201";
+  const nuevoEstadoLocal = await alternarFavoritoLocal(lugarId, uid);
+
+  if (esTokenRemotoApi(token)) {
     try {
       if (nuevoEstadoLocal) {
         await peticionApi<Favorito>(

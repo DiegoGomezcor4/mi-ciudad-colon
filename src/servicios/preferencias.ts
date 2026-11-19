@@ -134,29 +134,85 @@ export async function obtenerPreferenciasLocales(): Promise<Preferencias> {
 
 export async function guardarPreferenciasLocales(
   preferencias: Preferencias,
+  usuarioId?: string,
 ): Promise<void> {
   notificarCambioPreferencias(preferencias);
   await guardarItem(CLAVE_PREFERENCIAS, JSON.stringify(preferencias));
+  if (usuarioId) {
+    await guardarItem(
+      `${CLAVE_PREFERENCIAS}_${usuarioId}`,
+      JSON.stringify(preferencias),
+    );
+  }
 }
 
-export async function obtenerEventosGuardadosIds(): Promise<string[]> {
+export async function obtenerPreferenciasDeUsuarioLocal(
+  usuarioId: string,
+): Promise<Preferencias | null> {
   try {
-    const guardado = await leerItem(CLAVE_EVENTOS_GUARDADOS);
+    const guardado = await leerItem(`${CLAVE_PREFERENCIAS}_${usuarioId}`);
+    if (!guardado) return null;
+    return {
+      ...PREFERENCIAS_POR_DEFECTO,
+      ...(JSON.parse(guardado) as Partial<Preferencias>),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function marcarPreferenciasPendientesSync(
+  usuarioId: string,
+  pendiente: boolean,
+): Promise<void> {
+  await guardarItem(
+    `${CLAVE_PREFERENCIAS}_sync_${usuarioId}`,
+    pendiente ? "true" : "false",
+  );
+}
+
+export async function tienePreferenciasPendientesSync(
+  usuarioId: string,
+): Promise<boolean> {
+  const val = await leerItem(`${CLAVE_PREFERENCIAS}_sync_${usuarioId}`);
+  return val === "true";
+}
+
+export async function obtenerEventosGuardadosIds(
+  usuarioId?: string,
+): Promise<string[]> {
+  if (!usuarioId) {
+    return [];
+  }
+  try {
+    const clave = `${CLAVE_EVENTOS_GUARDADOS}_${usuarioId}`;
+    const guardado = await leerItem(clave);
     return guardado ? (JSON.parse(guardado) as string[]) : [];
   } catch {
     return [];
   }
 }
 
+export async function guardarEventosGuardadosIds(
+  ids: string[],
+  usuarioId?: string,
+): Promise<void> {
+  if (!usuarioId) return;
+  const clave = `${CLAVE_EVENTOS_GUARDADOS}_${usuarioId}`;
+  await guardarItem(clave, JSON.stringify(ids));
+}
+
 export async function alternarEventoGuardadoId(
   eventoId: string,
+  usuarioId?: string,
 ): Promise<boolean> {
-  const actuales = await obtenerEventosGuardadosIds();
+  if (!usuarioId) return false;
+  const actuales = await obtenerEventosGuardadosIds(usuarioId);
   const existe = actuales.includes(eventoId);
   const nuevos = existe
     ? actuales.filter((id) => id !== eventoId)
     : [...actuales, eventoId];
-  await guardarItem(CLAVE_EVENTOS_GUARDADOS, JSON.stringify(nuevos));
+  await guardarEventosGuardadosIds(nuevos, usuarioId);
   return !existe;
 }
 

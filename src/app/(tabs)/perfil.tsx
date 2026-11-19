@@ -51,19 +51,21 @@ export default function PantallaPerfilYFavoritos() {
   );
 
   const cargarDatos = useCallback(async () => {
-    const [perfil, resFavs, resLugares, prefs] = await Promise.all([
-      obtenerPerfilActual(),
-      obtenerMisFavoritos(),
-      obtenerLugares(),
-      obtenerPreferenciasLocales(),
-    ]);
-    setFavoritos(resFavs.datos);
-    setLugares(resLugares.datos);
-    setPreferencias(prefs);
-    if (perfil && !usuario) {
-      setBloqueadoBiometria(true);
-      setUsuario(perfil);
-    }
+    try {
+      const [perfil, resFavs, resLugares, prefs] = await Promise.all([
+        obtenerPerfilActual(),
+        obtenerMisFavoritos().catch(() => ({ datos: [], meta: null })),
+        obtenerLugares().catch(() => ({ datos: [], meta: null })),
+        obtenerPreferenciasLocales(),
+      ]);
+      setFavoritos(resFavs.datos);
+      setLugares(resLugares.datos);
+      setPreferencias(prefs);
+      if (perfil && !usuario) {
+        setBloqueadoBiometria(true);
+        setUsuario(perfil);
+      }
+    } catch {}
   }, [usuario]);
 
   useFocusEffect(
@@ -95,17 +97,19 @@ export default function PantallaPerfilYFavoritos() {
           "Tu cuenta fue registrada en la API y tu sesión quedó activa.",
         );
       } else {
-        const { usuario: nuevoUsuario } = await iniciarSesionUsuario(
-          email,
-          contrasena,
-        );
+        const { usuario: nuevoUsuario, token: nuevoToken } =
+          await iniciarSesionUsuario(email, contrasena);
         setUsuario(nuevoUsuario);
+        setPreferencias(nuevoUsuario.preferencias);
         setBloqueadoBiometria(false);
         const resFavs = await obtenerMisFavoritos();
         setFavoritos(resFavs.datos);
+        const esOffline = nuevoToken.startsWith("offline-sesion-");
         Alert.alert(
-          "Sesión iniciada",
-          "Tu token quedó resguardado en expo-secure-store para sincronizar tus favoritos y recorrido.",
+          esOffline ? "Sesión local (Sin conexión a la API)" : "Sesión iniciada",
+          esOffline
+            ? `Ingresaste como ${nuevoUsuario.nombre} usando los datos guardados en el teléfono.`
+            : "Tu token quedó resguardado en expo-secure-store para sincronizar tus favoritos y recorrido.",
         );
       }
     } catch (err) {
@@ -133,6 +137,7 @@ export default function PantallaPerfilYFavoritos() {
   const manejarCerrarSesion = async () => {
     await cerrarSesionUsuario();
     setUsuario(null);
+    setFavoritos([]);
     setBloqueadoBiometria(false);
   };
 
@@ -162,7 +167,14 @@ export default function PantallaPerfilYFavoritos() {
         <Text style={[styles.tituloSeccion, { color: colores.texto }]}>
           ★ Mis lugares favoritos ({favoritos.length})
         </Text>
-        {favoritos.length === 0 ? (
+        {!usuario ? (
+          <Text
+            style={[styles.textoSecundario, { color: colores.textoSecundario }]}
+          >
+            Iniciá sesión en Mi Cuenta acá abajo para ver y guardar tus lugares
+            favoritos.
+          </Text>
+        ) : favoritos.length === 0 ? (
           <Text
             style={[styles.textoSecundario, { color: colores.textoSecundario }]}
           >

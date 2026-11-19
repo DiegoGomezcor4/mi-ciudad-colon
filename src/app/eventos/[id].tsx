@@ -66,19 +66,40 @@ export default function PantallaDetalleEvento() {
 
   const manejarGuardarRecordatorio = async () => {
     if (!evento) return;
-    const nuevoEstado = await alternarGuardarEvento(evento.id);
-    setGuardado(nuevoEstado);
+    try {
+      const nuevoEstado = await alternarGuardarEvento(evento.id);
+      setGuardado(nuevoEstado);
 
-    if (nuevoEstado) {
-      const notificado = await programarRecordatorioEvento(evento);
-      Alert.alert(
-        "Evento guardado",
-        notificado
-          ? "Te vamos a avisar con una notificación antes de que empiece (o si se suspende por lluvia)."
-          : "Evento guardado en tu agenda.",
-      );
-    } else {
-      Alert.alert("Quitado de tu agenda", "Ya no recibirás avisos de este evento.");
+      if (nuevoEstado) {
+        const notificado = await programarRecordatorioEvento(evento);
+        Alert.alert(
+          "Evento guardado",
+          notificado
+            ? "Te vamos a avisar con una notificación antes de que empiece (o si se suspende por lluvia)."
+            : "Evento guardado en tu agenda.",
+        );
+      } else {
+        Alert.alert(
+          "Quitado de tu agenda",
+          "Ya no recibirás avisos de este evento.",
+        );
+      }
+    } catch (err) {
+      const mensaje =
+        err instanceof Error
+          ? err.message
+          : "Tenés que ingresar con tu cuenta para hacer esto.";
+      if (mensaje.toLowerCase().includes("cuenta")) {
+        Alert.alert("Cuenta requerida", mensaje, [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Ir a Mi Cuenta",
+            onPress: () => router.push("/(tabs)/perfil"),
+          },
+        ]);
+      } else {
+        Alert.alert("No se pudo guardar", mensaje);
+      }
     }
   };
 

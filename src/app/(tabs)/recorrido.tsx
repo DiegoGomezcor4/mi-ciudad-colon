@@ -37,8 +37,8 @@ export default function PantallaRecorrido() {
     try {
       setCargando(true);
       const [resVisitas, resLugares] = await Promise.all([
-        obtenerMisVisitas(),
-        obtenerLugares(),
+        obtenerMisVisitas().catch(() => ({ datos: [], meta: null })),
+        obtenerLugares().catch(() => ({ datos: [], meta: null })),
       ]);
       setVisitas(resVisitas.datos);
       setLugares(resLugares.datos);

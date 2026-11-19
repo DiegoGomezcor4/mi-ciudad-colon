@@ -230,9 +230,25 @@ export default function PantallaDetalleLugar() {
 
   const alternarFavorito = async () => {
     if (!lugar) return;
-    const nuevoEstado = await cambiarEstadoFavorito(lugar.id);
-    setFavorito(nuevoEstado);
-    Haptics.selectionAsync().catch(() => {});
+    try {
+      const nuevoEstado = await cambiarEstadoFavorito(lugar.id);
+      setFavorito(nuevoEstado);
+      Haptics.selectionAsync().catch(() => {});
+    } catch (err) {
+      Alert.alert(
+        "Cuenta requerida",
+        err instanceof Error
+          ? err.message
+          : "Tenés que ingresar con tu cuenta para hacer esto.",
+        [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Ir a Mi Cuenta",
+            onPress: () => router.push("/(tabs)/perfil"),
+          },
+        ],
+      );
+    }
   };
 
   const abrirComoLlegar = () => {

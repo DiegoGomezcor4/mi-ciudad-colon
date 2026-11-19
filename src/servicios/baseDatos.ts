@@ -1,14 +1,12 @@
 import type * as SQLiteTypes from "expo-sqlite";
-import { FAVORITOS_MOCK } from "../mocks/usuario";
-import { VISITAS_MOCK } from "../mocks/visitas";
 import { Favorito, Lugar, OrigenVisita, Visita } from "../tipos";
 
 let dbPromesa: Promise<SQLiteTypes.SQLiteDatabase | null> | null = null;
 
-// Respaldo en memoria en caso de que el motor nativo JSI de SQLite no esté disponible en el dispositivo
+// Respaldo en memoria vacío (sin datos de mockup)
 let lugaresMemoria: Lugar[] = [];
-let visitasMemoria: Visita[] = [...VISITAS_MOCK];
-let favoritosMemoria: Favorito[] = [...FAVORITOS_MOCK];
+let visitasMemoria: Visita[] = [];
+let favoritosMemoria: Favorito[] = [];
 
 export async function obtenerBaseDatos(): Promise<SQLiteTypes.SQLiteDatabase | null> {
   if (!dbPromesa) {
@@ -46,42 +44,9 @@ async function inicializarBaseDatos(): Promise<SQLiteTypes.SQLiteDatabase | null
         lugarId TEXT NOT NULL,
         creadoEn TEXT NOT NULL
       );
+      DELETE FROM visitas_locales WHERE id IN ('vis-311', 'vis-312');
+      DELETE FROM favoritos_locales WHERE id IN ('fav-088', 'fav-089');
     `);
-
-    const totalVisitas = await db.getFirstAsync<{ total: number }>(
-      "SELECT COUNT(*) as total FROM visitas_locales",
-    );
-    if (!totalVisitas || totalVisitas.total === 0) {
-      for (const v of VISITAS_MOCK) {
-        await db.runAsync(
-          `INSERT OR IGNORE INTO visitas_locales (id, usuarioId, lugarId, fechaHora, origen, fotoUri, nota, sincronizada)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            v.id,
-            v.usuarioId,
-            v.lugarId,
-            v.fechaHora,
-            v.origen,
-            v.fotoUri,
-            v.nota,
-            v.sincronizada ? 1 : 0,
-          ],
-        );
-      }
-    }
-
-    const totalFavoritos = await db.getFirstAsync<{ total: number }>(
-      "SELECT COUNT(*) as total FROM favoritos_locales",
-    );
-    if (!totalFavoritos || totalFavoritos.total === 0) {
-      for (const f of FAVORITOS_MOCK) {
-        await db.runAsync(
-          `INSERT OR IGNORE INTO favoritos_locales (id, usuarioId, lugarId, creadoEn)
-           VALUES (?, ?, ?, ?)`,
-          [f.id, f.usuarioId, f.lugarId, f.creadoEn],
-        );
-      }
-    }
 
     return db;
   } catch {
@@ -128,13 +93,24 @@ interface FilaVisita {
   sincronizada: number;
 }
 
-export async function listarVisitasLocales(): Promise<Visita[]> {
+export async function listarVisitasLocales(
+  usuarioId?: string,
+): Promise<Visita[]> {
   try {
     const db = await obtenerBaseDatos();
-    if (!db) return visitasMemoria;
-    const filas = await db.getAllAsync<FilaVisita>(
-      "SELECT * FROM visitas_locales ORDER BY fechaHora DESC",
-    );
+    if (!db) {
+      return usuarioId
+        ? visitasMemoria.filter((v) => v.usuarioId === usuarioId)
+        : visitasMemoria;
+    }
+    const filas = usuarioId
+      ? await db.getAllAsync<FilaVisita>(
+          "SELECT * FROM visitas_locales WHERE usuarioId = ? ORDER BY fechaHora DESC",
+          [usuarioId],
+        )
+      : await db.getAllAsync<FilaVisita>(
+          "SELECT * FROM visitas_locales ORDER BY fechaHora DESC",
+        );
     return filas.map((f) => ({
       id: f.id,
       usuarioId: f.usuarioId,
@@ -146,7 +122,9 @@ export async function listarVisitasLocales(): Promise<Visita[]> {
       sincronizada: Boolean(f.sincronizada),
     }));
   } catch {
-    return visitasMemoria;
+    return usuarioId
+      ? visitasMemoria.filter((v) => v.usuarioId === usuarioId)
+      : visitasMemoria;
   }
 }
 
@@ -221,31 +199,163 @@ export async function actualizarVisitaLocal(
   } catch {}
 }
 
-export async function listarFavoritosLocales(): Promise<Favorito[]> {
+export async function listarFavoritosLocales(
+  usuarioId?: string,
+): Promise<Favorito[]> {
   try {
     const db = await obtenerBaseDatos();
-    if (!db) return favoritosMemoria;
+    if (!db) {
+      return usuarioId
+        ? favoritosMemoria.filter((f) => f.usuarioId === usuarioId)
+        : favoritosMemoria;
+    }
+    if (usuarioId) {
+      return await db.getAllAsync<Favorito>(
+        "SELECT * FROM favoritos_locales WHERE usuarioId = ? ORDER BY creadoEn DESC",
+        [usuarioId],
+      );
+    }
     return await db.getAllAsync<Favorito>(
       "SELECT * FROM favoritos_locales ORDER BY creadoEn DESC",
     );
   } catch {
-    return favoritosMemoria;
+    return usuarioId
+      ? favoritosMemoria.filter((f) => f.usuarioId === usuarioId)
+      : favoritosMemoria;
   }
 }
 
-export async function esLugarFavoritoLocal(lugarId: string): Promise<boolean> {
+// Actualiza la tabla SQLite local para que coincida exactamente con los favoritos del usuario en la API
+export async function sincronizarEspejoFavoritosLocal(
+  favoritosRemotos: Favorito[],
+  usuarioId?: string,
+): Promise<void> {
+  const uid = usuarioId || favoritosRemotos[0]?.usuarioId;
+  if (uid) {
+    favoritosMemoria = [
+      ...favoritosMemoria.filter((f) => f.usuarioId !== uid),
+      ...favoritosRemotos,
+    ];
+  } else {
+    favoritosMemoria = [...favoritosRemotos];
+  }
+  try {
+    const db = await obtenerBaseDatos();
+    if (!db) return;
+    if (uid) {
+      await db.runAsync("DELETE FROM favoritos_locales WHERE usuarioId = ?", [
+        uid,
+      ]);
+    } else {
+      await db.runAsync("DELETE FROM favoritos_locales");
+    }
+    for (const f of favoritosRemotos) {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO favoritos_locales (id, usuarioId, lugarId, creadoEn) VALUES (?, ?, ?, ?)`,
+        [f.id, f.usuarioId, f.lugarId, f.creadoEn],
+      );
+    }
+  } catch {}
+}
+
+// Actualiza la tabla SQLite local con las visitas del servidor (conservando las pendientes offline y las fotos locales)
+export async function sincronizarEspejoVisitasLocal(
+  visitasRemotas: Visita[],
+  usuarioId?: string,
+): Promise<void> {
+  try {
+    const uid = usuarioId || visitasRemotas[0]?.usuarioId;
+    const actuales = await listarVisitasLocales(uid);
+    const mapaFotosLocales = new Map<string, string>();
+    for (const v of actuales) {
+      if (v.fotoUri) {
+        mapaFotosLocales.set(v.id, v.fotoUri);
+      }
+    }
+
+    const pendientes = actuales.filter((v) => !v.sincronizada);
+    const idsRemotos = new Set(visitasRemotas.map((v) => v.id));
+    const pendientesNoSubidas = pendientes.filter(
+      (v) => !idsRemotos.has(v.id),
+    );
+
+    const remotasConFoto = visitasRemotas.map((remota) => ({
+      ...remota,
+      fotoUri: remota.fotoUri || mapaFotosLocales.get(remota.id) || null,
+      sincronizada: true,
+    }));
+
+    const nuevoEspejo = [...pendientesNoSubidas, ...remotasConFoto].sort(
+      (a, b) =>
+        new Date(b.fechaHora).getTime() - new Date(a.fechaHora).getTime(),
+    );
+
+    if (uid) {
+      visitasMemoria = [
+        ...visitasMemoria.filter((v) => v.usuarioId !== uid),
+        ...nuevoEspejo,
+      ];
+    } else {
+      visitasMemoria = nuevoEspejo;
+    }
+
+    const db = await obtenerBaseDatos();
+    if (!db) return;
+    if (uid) {
+      await db.runAsync(
+        "DELETE FROM visitas_locales WHERE sincronizada = 1 AND usuarioId = ?",
+        [uid],
+      );
+    } else {
+      await db.runAsync("DELETE FROM visitas_locales WHERE sincronizada = 1");
+    }
+    for (const v of remotasConFoto) {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO visitas_locales (id, usuarioId, lugarId, fechaHora, origen, fotoUri, nota, sincronizada)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+        [
+          v.id,
+          v.usuarioId,
+          v.lugarId,
+          v.fechaHora,
+          v.origen,
+          v.fotoUri,
+          v.nota,
+        ],
+      );
+    }
+  } catch {}
+}
+
+export async function limpiarEspejoUsuarioLocal(): Promise<void> {
+  // No borramos las filas particionadas por usuarioId en SQLite para que cada usuario conserve su caché cuando vuelva a entrar sin conexión
+}
+
+export async function esLugarFavoritoLocal(
+  lugarId: string,
+  usuarioId?: string,
+): Promise<boolean> {
   try {
     const db = await obtenerBaseDatos();
     if (!db) {
-      return favoritosMemoria.some((f) => f.lugarId === lugarId);
+      return favoritosMemoria.some(
+        (f) => f.lugarId === lugarId && (!usuarioId || f.usuarioId === usuarioId),
+      );
     }
-    const fila = await db.getFirstAsync<{ id: string }>(
-      "SELECT id FROM favoritos_locales WHERE lugarId = ?",
-      [lugarId],
-    );
+    const fila = usuarioId
+      ? await db.getFirstAsync<{ id: string }>(
+          "SELECT id FROM favoritos_locales WHERE lugarId = ? AND usuarioId = ?",
+          [lugarId, usuarioId],
+        )
+      : await db.getFirstAsync<{ id: string }>(
+          "SELECT id FROM favoritos_locales WHERE lugarId = ?",
+          [lugarId],
+        );
     return Boolean(fila);
   } catch {
-    return favoritosMemoria.some((f) => f.lugarId === lugarId);
+    return favoritosMemoria.some(
+      (f) => f.lugarId === lugarId && (!usuarioId || f.usuarioId === usuarioId),
+    );
   }
 }
 
@@ -257,16 +367,17 @@ export async function alternarFavoritoLocal(
     const db = await obtenerBaseDatos();
     if (db) {
       const existente = await db.getFirstAsync<{ id: string }>(
-        "SELECT id FROM favoritos_locales WHERE lugarId = ?",
-        [lugarId],
+        "SELECT id FROM favoritos_locales WHERE lugarId = ? AND usuarioId = ?",
+        [lugarId, usuarioId],
       );
 
       if (existente) {
-        await db.runAsync("DELETE FROM favoritos_locales WHERE lugarId = ?", [
-          lugarId,
-        ]);
+        await db.runAsync(
+          "DELETE FROM favoritos_locales WHERE lugarId = ? AND usuarioId = ?",
+          [lugarId, usuarioId],
+        );
         favoritosMemoria = favoritosMemoria.filter(
-          (f) => f.lugarId !== lugarId,
+          (f) => !(f.lugarId === lugarId && f.usuarioId === usuarioId),
         );
         return false;
       }
@@ -285,9 +396,13 @@ export async function alternarFavoritoLocal(
     }
   } catch {}
 
-  const existeMem = favoritosMemoria.some((f) => f.lugarId === lugarId);
+  const existeMem = favoritosMemoria.some(
+    (f) => f.lugarId === lugarId && f.usuarioId === usuarioId,
+  );
   if (existeMem) {
-    favoritosMemoria = favoritosMemoria.filter((f) => f.lugarId !== lugarId);
+    favoritosMemoria = favoritosMemoria.filter(
+      (f) => !(f.lugarId === lugarId && f.usuarioId === usuarioId),
+    );
     return false;
   }
   const nuevoFav: Favorito = {

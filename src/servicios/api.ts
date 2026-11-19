@@ -101,6 +101,30 @@ export function monitorearConexionApi(
   };
 }
 
+export function esErrorDeConexionApi(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof TypeError) return true;
+  if (err instanceof Error) {
+    if (
+      err.name === "ErrorConexionApi" ||
+      err.name === "AbortError" ||
+      err.message === "SIN_CONEXION_API" ||
+      err.message.toLowerCase().includes("network") ||
+      err.message.toLowerCase().includes("aborted") ||
+      err.message.toLowerCase().includes("failed to fetch")
+    ) {
+      return true;
+    }
+  }
+  const str = String(err).toLowerCase();
+  return (
+    str.includes("network") ||
+    str.includes("aborted") ||
+    str.includes("aborterror") ||
+    str.includes("sin_conexion_api")
+  );
+}
+
 export async function peticionApi<T>(
   endpoint: string,
   opciones: RequestInit = {},
@@ -115,8 +139,11 @@ export async function peticionApi<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
+  const timeoutEfectivo =
+    ultimoEstadoConectado === false ? 1500 : TIMEOUT_MS;
   const controlador = new AbortController();
-  const idTimeout = setTimeout(() => controlador.abort(), TIMEOUT_MS);
+  const idTimeout = setTimeout(() => controlador.abort(), timeoutEfectivo);
+  let respuestaRecibida = false;
 
   try {
     const respuesta = await fetch(`${API_URL}${endpoint}`, {
@@ -124,6 +151,7 @@ export async function peticionApi<T>(
       headers,
       signal: controlador.signal,
     });
+    respuestaRecibida = true;
 
     // El servidor respondió: la conexión con la API está activa
     emitirEstadoApi(true);
@@ -143,12 +171,12 @@ export async function peticionApi<T>(
 
     return json as RespuestaExito<T>;
   } catch (err) {
-    // Si falló la red o hubo timeout, marcamos desconexión inmediata
-    if (
-      err instanceof TypeError ||
-      (err instanceof Error && err.name === "AbortError")
-    ) {
+    // Si fetch falló antes de recibir respuesta HTTP, la API está apagada o inalcanzable
+    if (!respuestaRecibida) {
       emitirEstadoApi(false);
+      const errorRed = new Error("SIN_CONEXION_API");
+      errorRed.name = "ErrorConexionApi";
+      throw errorRed;
     }
     throw err;
   } finally {

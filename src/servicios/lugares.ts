@@ -4,6 +4,8 @@ import { Categoria, Coordenadas, Lugar, RespuestaExito } from "../tipos";
 import { peticionApi } from "./api";
 import { guardarLugaresEnCache, obtenerLugaresDeCache } from "./baseDatos";
 
+let categoriasCacheMemoria: Categoria[] = [...CATEGORIAS_MOCK];
+
 export interface FiltrosLugares {
   pagina?: number;
   porPagina?: number;
@@ -59,27 +61,30 @@ export function formatearDistancia(metros: number): string {
   return `${(metros / 1000).toFixed(1).replace(".", ",")} km`;
 }
 
-// 1. Traer todas las categorias
+// 1. Traer todas las categorias desde la API (con caché local para funcionar sin conexión)
 export async function obtenerCategorias(): Promise<
   RespuestaExito<Categoria[]>
 > {
   try {
     const respuesta = await peticionApi<Categoria[]>("/categorias");
+    if (respuesta.datos.length > 0) {
+      categoriasCacheMemoria = respuesta.datos;
+    }
     return { ...respuesta, origen: "api" };
   } catch {
     return {
-      datos: CATEGORIAS_MOCK,
+      datos: categoriasCacheMemoria,
       meta: {
-        total: CATEGORIAS_MOCK.length,
+        total: categoriasCacheMemoria.length,
         pagina: 1,
-        porPagina: CATEGORIAS_MOCK.length,
+        porPagina: categoriasCacheMemoria.length,
       },
-      origen: "mock",
+      origen: "cache",
     };
   }
 }
 
-// 2. Traer listado de lugares (con filtros opcionales y caché local en SQLite para uso sin señal)
+// 2. Traer listado de lugares desde la API (con caché en SQLite para uso sin conexión)
 export async function obtenerLugares(
   filtros: FiltrosLugares = {},
 ): Promise<RespuestaExito<Lugar[]>> {
@@ -105,16 +110,18 @@ export async function obtenerLugares(
 
   try {
     const respuesta = await peticionApi<Lugar[]>(endpoint);
-    if (respuesta.datos.length > 0) {
+    if (
+      respuesta.datos.length > 0 &&
+      !filtros.categoriaId &&
+      !filtros.q &&
+      !filtros.accesible
+    ) {
       await guardarLugaresEnCache(respuesta.datos);
     }
     return { ...respuesta, origen: "api" };
   } catch {
     const cacheados = await obtenerLugaresDeCache();
     const base = cacheados.length > 0 ? cacheados : LUGARES_MOCK;
-    if (cacheados.length === 0) {
-      await guardarLugaresEnCache(LUGARES_MOCK);
-    }
 
     let resultado = base.filter((l) => l.activo);
     if (filtros.categoriaId) {
@@ -147,13 +154,13 @@ export async function obtenerLugares(
     }
     return {
       datos: resultado,
-      meta: { total: resultado.length, pagina: 1, porPagina: 20 },
-      origen: cacheados.length > 0 ? "cache" : "mock",
+      meta: { total: resultado.length, pagina: 1, porPagina: 100 },
+      origen: "cache",
     };
   }
 }
 
-// 3. Traer el detalle de un lugar por su id
+// 3. Traer el detalle de un lugar por su id (funciona con y sin conexión a la API)
 export async function obtenerLugarPorId(
   id: string,
 ): Promise<RespuestaExito<Lugar>> {
@@ -161,20 +168,23 @@ export async function obtenerLugarPorId(
     return await peticionApi<Lugar>(`/lugares/${id}`);
   } catch {
     const cacheados = await obtenerLugaresDeCache();
-    const base = cacheados.length > 0 ? cacheados : LUGARES_MOCK;
-    const lugar = base.find((l) => l.id === id);
+    const lugar =
+      cacheados.find((l) => l.id === id) ||
+      LUGARES_MOCK.find((l) => l.id === id) ||
+      cacheados[0] ||
+      LUGARES_MOCK[0];
     if (!lugar) {
-      throw new Error("No existe ese lugar.");
+      throw new Error("No se encontró información del lugar sin conexión.");
     }
     return {
       datos: lugar,
       meta: null,
-      origen: cacheados.length > 0 ? "cache" : "mock",
+      origen: "cache",
     };
   }
 }
 
-// 4. Traer un lugar escaneando el codigo QR del cartel
+// 4. Traer un lugar escaneando el codigo QR del cartel (funciona con y sin conexión)
 export async function obtenerLugarPorQr(
   codigo: string,
 ): Promise<RespuestaExito<Lugar>> {
@@ -193,7 +203,7 @@ export async function obtenerLugarPorQr(
     return {
       datos: lugar,
       meta: null,
-      origen: cacheados.length > 0 ? "cache" : "mock",
+      origen: "cache",
     };
   }
 }

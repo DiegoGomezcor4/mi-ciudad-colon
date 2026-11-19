@@ -7,8 +7,13 @@ import {
   insertarVisitaLocal,
   listarVisitasLocales,
   marcarVisitaComoSincronizada,
+  sincronizarEspejoVisitasLocal,
 } from "./baseDatos";
-import { obtenerTokenSesion } from "./seguridad";
+import {
+  esTokenRemotoApi,
+  obtenerTokenSesion,
+  obtenerUsuarioSesion,
+} from "./seguridad";
 
 // Sube primero la foto local a POST /archivos como exige la regla R13 de la API de la cátedra
 async function subirFotoAlServidor(
@@ -19,6 +24,34 @@ async function subirFotoAlServidor(
     return fotoUriLocal;
   }
 
+  // 1. Intento nativo con File.upload (MULTIPART) de expo-file-system
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { File, UploadType } = require("expo-file-system") as typeof import("expo-file-system");
+    const archivo = new File(fotoUriLocal);
+    if (archivo.exists) {
+      const resultado = await archivo.upload(`${API_URL}/archivos`, {
+        httpMethod: "POST",
+        uploadType: UploadType.MULTIPART,
+        fieldName: "archivo",
+        mimeType: "image/jpeg",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      });
+      if (resultado.status >= 200 && resultado.status < 300) {
+        const json = JSON.parse(resultado.body) as RespuestaExito<{
+          url: string;
+        }>;
+        if (json?.datos?.url) {
+          return json.datos.url;
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Respaldo estándar con fetch y FormData
   try {
     const formData = new FormData();
     formData.append("archivo", {
@@ -31,6 +64,7 @@ async function subirFotoAlServidor(
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
+        Accept: "application/json",
       },
       body: formData,
     });
@@ -46,32 +80,66 @@ async function subirFotoAlServidor(
   }
 }
 
-// Combina las visitas de GET /yo/visitas de la API con la cola local en SQLite (sincronizada: false)
+// Opción A: Sin cuenta iniciada, la lista de recorrido está vacía ("La cuenta es para guardar cosas")
 export async function obtenerMisVisitas(): Promise<RespuestaExito<Visita[]>> {
-  const locales = await listarVisitasLocales();
   const token = await obtenerTokenSesion();
+  if (!token) {
+    return {
+      datos: [],
+      meta: { total: 0, pagina: 1, porPagina: 200 },
+    };
+  }
+  const usuario = await obtenerUsuarioSesion();
+  const uid = usuario?.id || "usr-201";
 
-  if (token) {
+  const locales = await listarVisitasLocales(uid);
+  if (esTokenRemotoApi(token)) {
     try {
-      const remotas = await peticionApi<Visita[]>("/yo/visitas", {}, token);
-      const idsRemotos = new Set(remotas.datos.map((v) => v.id));
-      const pendientesLocales = locales.filter(
-        (v) => !v.sincronizada && !idsRemotos.has(v.id),
+      const remotas = await peticionApi<Visita[]>(
+        "/yo/visitas?porPagina=200",
+        {},
+        token,
       );
-      const combinadas = [...pendientesLocales, ...remotas.datos].sort(
-        (a, b) =>
-          new Date(b.fechaHora).getTime() - new Date(a.fechaHora).getTime(),
-      );
+      const mapaLocales = new Map(locales.map((v) => [v.id, v]));
+
+      // Si alguna visita ya subida al servidor quedó sin foto remota pero tiene foto local en el teléfono, la preservamos y la subimos en segundo plano
+      const remotasEnriquecidas = remotas.datos.map((remota) => {
+        const local = mapaLocales.get(remota.id);
+        if (!remota.fotoUri && local?.fotoUri) {
+          void (async () => {
+            const urlSubida = await subirFotoAlServidor(local.fotoUri!, token);
+            if (urlSubida) {
+              await peticionApi<Visita>(
+                `/yo/visitas/${remota.id}`,
+                {
+                  method: "PATCH",
+                  body: JSON.stringify({ fotoUri: urlSubida }),
+                },
+                token,
+              ).catch(() => {});
+            }
+          })();
+          return { ...remota, fotoUri: local.fotoUri };
+        }
+        return remota;
+      });
+
+      await sincronizarEspejoVisitasLocal(remotasEnriquecidas, uid);
+      const espejoActualizado = await listarVisitasLocales(uid);
       return {
-        datos: combinadas,
-        meta: { total: combinadas.length, pagina: 1, porPagina: 50 },
+        datos: espejoActualizado,
+        meta: {
+          total: espejoActualizado.length,
+          pagina: 1,
+          porPagina: 200,
+        },
       };
     } catch {}
   }
 
   return {
     datos: locales,
-    meta: { total: locales.length, pagina: 1, porPagina: 50 },
+    meta: { total: locales.length, pagina: 1, porPagina: 200 },
   };
 }
 
@@ -86,6 +154,11 @@ export interface DatosNuevaVisita {
 export async function registrarNuevaVisita(
   datos: DatosNuevaVisita,
 ): Promise<Visita> {
+  const token = await obtenerTokenSesion();
+  if (!token) {
+    throw new Error("Tenés que ingresar con tu cuenta para hacer esto.");
+  }
+  const usuario = await obtenerUsuarioSesion();
   const id = `vis-${Date.now()}`;
   let fotoPersistente: string | null = null;
 
@@ -95,7 +168,7 @@ export async function registrarNuevaVisita(
 
   const nuevaVisita: Visita = {
     id,
-    usuarioId: datos.usuarioId || "usr-201",
+    usuarioId: datos.usuarioId || usuario?.id || "usr-201",
     lugarId: datos.lugarId,
     fechaHora: new Date().toISOString(),
     origen: datos.origen,
@@ -111,10 +184,18 @@ export async function registrarNuevaVisita(
   try {
     const red = await Network.getNetworkStateAsync();
     const token = await obtenerTokenSesion();
-    if (red.isConnected && red.isInternetReachable !== false && token) {
+    if (
+      red.isConnected &&
+      red.isInternetReachable !== false &&
+      esTokenRemotoApi(token)
+    ) {
       let urlFotoRemota: string | null = null;
       if (nuevaVisita.fotoUri) {
         urlFotoRemota = await subirFotoAlServidor(nuevaVisita.fotoUri, token);
+        // Si el usuario adjuntó foto pero la subida a /archivos falló, dejamos la visita pendiente en la cola local para no perder la foto
+        if (!urlFotoRemota) {
+          return nuevaVisita;
+        }
       }
 
       await peticionApi<Visita>(
@@ -154,13 +235,13 @@ export async function sincronizarVisitasPendientes(): Promise<{
   }
 
   const token = await obtenerTokenSesion();
-  if (!token || token.startsWith("jwt-colon-")) {
+  if (!esTokenRemotoApi(token)) {
     throw new Error(
-      "Iniciá sesión en la pestaña 'Yo' (ej. lucia@mail.com) para respaldar tus visitas en el servidor.",
+      "Iniciá sesión con conexión a la API en la pestaña 'Yo' (ej. lucia@mail.com) para respaldar tus visitas en el servidor.",
     );
   }
-
-  const todas = await listarVisitasLocales();
+  const usuario = await obtenerUsuarioSesion();
+  const todas = await listarVisitasLocales(usuario?.id);
   const pendientes = todas.filter((v) => !v.sincronizada);
   let sincronizadasAhora = 0;
   let ultimoError: string | null = null;
@@ -170,6 +251,9 @@ export async function sincronizarVisitasPendientes(): Promise<{
       let urlFotoRemota: string | null = null;
       if (visita.fotoUri) {
         urlFotoRemota = await subirFotoAlServidor(visita.fotoUri, token);
+        if (!urlFotoRemota) {
+          throw new Error("No se pudo subir la fotografía a POST /archivos.");
+        }
       }
       await peticionApi<Visita>(
         "/yo/visitas",
@@ -200,7 +284,7 @@ export async function sincronizarVisitasPendientes(): Promise<{
     }
   }
 
-  const actualizadas = await listarVisitasLocales();
+  const actualizadas = await listarVisitasLocales(usuario?.id);
   const pendientesRestantes = actualizadas.filter((v) => !v.sincronizada).length;
 
   if (pendientes.length > 0 && sincronizadasAhora === 0 && ultimoError) {
@@ -237,7 +321,7 @@ export async function actualizarVisitaExistente(
   });
 
   const token = await obtenerTokenSesion();
-  if (token && !token.startsWith("jwt-colon-")) {
+  if (esTokenRemotoApi(token)) {
     try {
       const cuerpoPatch: Record<string, string | null> = {};
       if (notaLimpia !== undefined) {

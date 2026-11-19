@@ -216,8 +216,20 @@ export default function PantallaNuevaVisita() {
         "Se guardó en tu recorrido (y quedará sincronizada apenas tengas señal).",
         [{ text: "Ver mi recorrido", onPress: () => router.back() }],
       );
-    } catch {
-      Alert.alert("Error", "No se pudo guardar la visita.");
+    } catch (err) {
+      const mensaje =
+        err instanceof Error ? err.message : "No se pudo guardar la visita.";
+      if (mensaje.toLowerCase().includes("cuenta")) {
+        Alert.alert("Cuenta requerida", mensaje, [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Ir a Mi Cuenta",
+            onPress: () => router.push("/(tabs)/perfil"),
+          },
+        ]);
+      } else {
+        Alert.alert("Error", mensaje);
+      }
     } finally {
       setGuardando(false);
     }

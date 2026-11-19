@@ -60,11 +60,14 @@ export default function PantallaAgenda() {
   const cargarAgenda = useCallback(async () => {
     try {
       setCargando(true);
-      const [resEventos, resLugares, idsGuardados] = await Promise.all([
-        obtenerEventos(),
-        obtenerLugares(),
-        obtenerMisEventosGuardadosIds(),
+      const [idsGuardados, resLugares] = await Promise.all([
+        obtenerMisEventosGuardadosIds().catch(() => []),
+        obtenerLugares().catch(() => ({ datos: [], meta: null })),
       ]);
+      const resEventos = await obtenerEventos().catch(() => ({
+        datos: [],
+        meta: null,
+      }));
       setEventos(resEventos.datos);
       setLugares(resLugares.datos);
       setGuardadosIds(idsGuardados);
